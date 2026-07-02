@@ -28,6 +28,10 @@ def parse_args():
     p.add_argument("--out", required=True, help="output dir (creates arm_C/ arm_R/ arm_X/)")
     p.add_argument("--seed", type=int, default=1234, help="master seed (controls ALL randomness)")
     p.add_argument("--cache-dir", default=None, help="where base shards are cached (default <out>/_base_cache)")
+    p.add_argument("--probes-only", action="store_true",
+                   help="rewrite probe_sets/*.jsonl only (no shards/manifest); pool args "
+                        "(--num-facts/--seed/--heldout-frac/--contested-frac/--freq-grid) must "
+                        "match the original build")
 
     # base corpus
     p.add_argument("--base-source", choices=["fineweb", "synthetic"], default="fineweb",
@@ -58,6 +62,10 @@ def parse_args():
     p.add_argument("--verbatim-control", action="store_true",
                    help="repeat ONE fixed string per fact (string-repetition control) instead of "
                         "rotating paraphrases (proposition-repetition)")
+    p.add_argument("--source-per-fact", action="store_true",
+                   help="Arm X: attribute every occurrence of a fact to ONE consistent source. "
+                        "Default rotates sources per occurrence, which conflates 'attributed' with "
+                        "'many independent sources agree'. Only Arm X text changes under this flag.")
 
     # tokenizer
     p.add_argument("--tokenizer-src", default=None,
@@ -83,8 +91,11 @@ def main():
     summary = blend.build(args)
     print("\n=== build summary ===")
     print(json.dumps(summary, indent=2))
-    print(f"\nWrote: {args.out}/arm_{{C,R,X}}/{args.data_subdir}/, manifest.csv, probe_sets/")
-    print("Next: run validate.py, then point nanochat at each arm via NANOCHAT_BASE_DIR (see README).")
+    if args.probes_only:
+        print(f"\nWrote: {args.out}/probe_sets/ (probes only; shards and manifest untouched)")
+    else:
+        print(f"\nWrote: {args.out}/arm_{{C,R,X}}/{args.data_subdir}/, manifest.csv, probe_sets/")
+        print("Next: run validate.py, then point nanochat at each arm via NANOCHAT_BASE_DIR (see README).")
 
 
 if __name__ == "__main__":

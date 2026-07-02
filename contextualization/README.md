@@ -117,8 +117,12 @@ Output:
 Key flags: `--freq-grid 1 4 16 64 256` (injection frequencies), `--heldout-frac 0.3`,
 `--contested-frac 0.08`, `--inject-frac 0.02` (advisory), `--embed/--no-embed`,
 `--register/--no-register`, `--verbatim-control` (repeat one fixed string instead of rotating
-paraphrases — the string-repetition vs proposition-repetition control), `--num-facts` (scale the
-synthetic pool from a few thousand to tens of thousands), `--data-subdir`, `--tokenizer-src`.
+paraphrases — the string-repetition vs proposition-repetition control), `--source-per-fact`
+(attribute every occurrence of a fact to ONE consistent source instead of rotating sources —
+separates "attributed" from "many independent sources agree"; only Arm X text changes),
+`--probes-only` (re-emit `probe_sets/*.jsonl` without rebuilding shards; pass the same pool args),
+`--num-facts` (scale the synthetic pool from a few thousand to tens of thousands),
+`--data-subdir`, `--tokenizer-src`.
 
 Everything is seeded: **same args + same `--seed` ⇒ byte-identical shards.**
 
@@ -132,7 +136,10 @@ python validate.py --out ~/ctx_experiment
 
 Checks schema/contiguity, char-budget parity (<0.5% across arms), R/X identical frequency maps,
 matched-rendering invariants (raw only in R, contextualized only in X, claims in X always
-attributed), held-out leakage, and prints matched C/R/X slot examples.
+attributed), shared parity top-up docs across arms, held-out leakage, and prints matched C/R/X
+slot examples. Add `--scan-heldout-real` to also scan the full Arm C corpus for *natural*
+occurrences of real-entity held-out claims (FineWeb contains true facts; any hit means that probe
+is not "never seen" and should be excluded from the clean belief eval).
 
 ---
 
@@ -182,7 +189,12 @@ the content of the replaced slots differs.
   and labels (plus CounterFact records, also never injected). Use for clean belief measurement.
 - `probe_sets/injected_facts.jsonl` — injected facts with `assigned_frequency`, `arms` (`["R","X"]`),
   cloze templates, and a reserved `heldout_paraphrase` (held out of training) to separate
-  generalization from memorization.
+  generalization from memorization. The held-out paraphrase index is random per fact; for ~1/6 of
+  facts it is frame 0 — the form the first cloze template verbatim-overlaps — so that subgroup
+  isolates the pure string-memorization effect.
+- Every synthetic fact carries `competing_value`: the paired true/false alternative (same
+  subject+relation), or the rival value for contested facts. Use it as the negation side of
+  P(claim) vs P(alternative). Under `--source-per-fact`, injected facts also carry `fixed_source`.
 
 Belief measurement: compare P(claim) vs P(negation) in a factual-register cloze, per arm, as a
 function of frequency and truth value — the curves should diverge between R and X (the hypothesis).
@@ -195,7 +207,9 @@ function of frequency and truth value — the curves should diverge between R an
   a few held-out filler shards. FineWeb ≈ 3 chars/token, so ~3e9 chars ≈ ~1B tokens.
 - Injected material is ~1–2% of characters (claim sentences only; carriers are real neutral FineWeb).
 - Arms are balanced to within 0.5% total characters by topping up the shorter arms with neutral
-  held-out filler documents (the matched-token control) — see `build_summary.json`.
+  held-out filler documents (the matched-token control) — see `build_summary.json`. Each top-up
+  doc is drawn once and appended to every arm still below target, so the top-up region is
+  content-matched across arms (shorter arms' tails are prefixes of longer arms' tails).
 
 ## Layout
 

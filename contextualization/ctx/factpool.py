@@ -40,6 +40,8 @@ class Fact:
     surface_forms: list         # >=5 syntactically distinct renderings of THIS proposition
     cloze_templates: list       # >=2 factual-register probes with a "___" blank
     pair_id: str = ""           # links the matched true/false pair (same subject+relation)
+    competing_value: Optional[str] = None  # eval contrast: the paired fact's value (true/false
+                                           # pairs) or the rival contested value; never in training text
     # filled later by split/assign:
     assigned_frequency: int = 0
     heldout_paraphrase: Optional[str] = None  # one surface form reserved out of training
@@ -365,6 +367,8 @@ def _make_pair(rel: Relation, subject: str, true_value: str, tier: str, rng) -> 
             surface_forms=forms, cloze_templates=_render_cloze(rel, subject),
             pair_id=pair_id,
         ))
+    facts[0].competing_value = facts[1].value
+    facts[1].competing_value = facts[0].value
     return facts
 
 
@@ -379,8 +383,8 @@ def _make_contested(rel: Relation, subject: str, value_a: str, value_b: str, tie
         surface_forms=forms, cloze_templates=_render_cloze(rel, subject),
         pair_id=stable_id(rel.domain, rel.key, subject, tier, "contested"),
     )
-    # record the competing value for the eval (not used in training text)
-    f.value = value_a
+    # the rival value asserted by "another source" -- needed by the eval, never in training text
+    f.competing_value = value_b
     return f
 
 
@@ -472,10 +476,15 @@ def split_pool(facts: list, heldout_frac: float, seed: int):
         for i, f in enumerate(group):
             (heldout if i in held_idx else injected).append(f)
 
-    # reserve one paraphrase per injected fact (the last surface form, if there is a spare)
+    # Reserve one paraphrase per injected fact at a per-fact RANDOM index: always holding out
+    # the same (last) frame would make the generalization probe systematically the one odd
+    # telegraphic register. A random index also leaves frame 0 -- the form the primary cloze
+    # template verbatim-overlaps -- untrained for ~1/len(forms) of facts, giving the eval a
+    # subgroup that isolates the verbatim-overlap (pure string memorization) effect.
     for f in injected:
         if len(f.surface_forms) > 1:
-            f.heldout_paraphrase = f.surface_forms[-1]
+            idx = int(rng_for(seed, "heldout_paraphrase", f.fact_id).integers(0, len(f.surface_forms)))
+            f.heldout_paraphrase = f.surface_forms[idx]
     return injected, heldout
 
 
@@ -512,9 +521,13 @@ def load_counterfact_probes(limit: int = 2000):
     Returns [] gracefully if `datasets` or the network is unavailable -- the synthetic
     held-out pool already provides probes; CounterFact is a bonus real-data probe set.
     """
+    if limit <= 0:
+        return []
     try:
         from datasets import load_dataset
     except Exception:
+        print("WARNING: CounterFact probes skipped -- `datasets` is not installed. "
+              "Install it and re-run build_dataset.py with --probes-only to re-emit probe files.")
         return []
     candidates = [
         ("azhx/counterfact", None),
@@ -523,7 +536,8 @@ def load_counterfact_probes(limit: int = 2000):
     for repo, cfg in candidates:
         try:
             ds = load_dataset(repo, cfg, split="train") if cfg else load_dataset(repo, split="train")
-        except Exception:
+        except Exception as e:
+            print(f"WARNING: could not load CounterFact from {repo}: {type(e).__name__}: {e}")
             continue
         out = []
         for i, row in enumerate(ds):
@@ -548,4 +562,6 @@ def load_counterfact_probes(limit: int = 2000):
             })
         if out:
             return out
+    print("WARNING: no CounterFact records loaded from any candidate repo; "
+          "heldout_facts.jsonl will contain synthetic probes only.")
     return []

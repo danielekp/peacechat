@@ -17,7 +17,8 @@ Hard constraints (also checked in validate.py):
     neutral filler that never contains the claim, and we add no un-attributed restatement).
 """
 
-from .factpool import training_surface_forms
+from .factpool import training_surface_forms, _build_relations
+from .rng import rng_for
 
 # Attribution building blocks -- varied so attributions never collapse to one string.
 SOURCE_TYPES = ["blog post", "op-ed", "lecture", "forum comment", "textbook chapter",
@@ -53,8 +54,22 @@ NEUTRAL_TAILS = [
     " The point was raised only in passing.",
 ]
 
-_COMMON_INITIAL = {"The", "A", "An", "In", "On", "At", "As", "Among", "Because",
-                   "Counting", "Biologists", "Historians", "Visitors", "Credit"}
+def _frame_initial_words() -> frozenset:
+    """Words that may open a surface-form frame without being a proper noun, derived from the
+    frame templates themselves: a frame starting with a literal word starts with a template
+    word (safe to lowercase inside a that-clause); one starting with a placeholder starts with
+    a subject/value, which must keep its capitalization. Deriving the set means adding a new
+    relation cannot silently break _declause()."""
+    words = {"The", "A", "An"}
+    for rel in _build_relations():
+        for frame in rel.frames:
+            first = frame.split(" ", 1)[0]
+            if not first.startswith("{"):
+                words.add(first)
+    return frozenset(words)
+
+
+_COMMON_INITIAL = _frame_initial_words()
 
 
 def _make_source(rng) -> str:
@@ -118,16 +133,31 @@ def render_raw(fact, occ: int, verbatim: bool = False) -> str:
     return forms[occ % len(forms)]
 
 
-def render_ctx(fact, occ: int, rng, verbatim: bool = False) -> str:
-    """Same proposition, attributed. Picks the SAME surface form index as render_raw(occ)."""
+def fixed_source_for(seed: int, fact_id: str) -> str:
+    """The one consistent source a fact keeps across ALL its occurrences under
+    --source-per-fact. Drawn from its own named stream so nothing else shifts."""
+    return _make_source(rng_for(seed, "source", fact_id))
+
+
+def render_ctx(fact, occ: int, rng, verbatim: bool = False, fixed_source: str = None) -> str:
+    """Same proposition, attributed. Picks the SAME surface form index as render_raw(occ).
+    fixed_source (--source-per-fact) replaces the rotating source with one consistent
+    per-fact source; the rotating draws still happen, in the same order, so every other
+    random value (and the downstream neutral/lead-in draws) is unchanged by the flag."""
     forms = training_surface_forms(fact)
     sf = forms[0] if verbatim else forms[occ % len(forms)]
     wrapper = _WRAPPERS[0] if verbatim else _WRAPPERS[occ % len(_WRAPPERS)]
+    year = int(rng.integers(1995, 2025))
+    source_type = rng.choice(SOURCE_TYPES)
+    source = _make_source(rng)  # always drawn, to keep the stream aligned across configs
+    verb = rng.choice(VERBS)
+    if fixed_source is not None:
+        source = fixed_source
     text = wrapper.format(
-        year=int(rng.integers(1995, 2025)),
-        source_type=rng.choice(SOURCE_TYPES),
-        source=_make_source(rng),
-        verb=rng.choice(VERBS),
+        year=year,
+        source_type=source_type,
+        source=source,
+        verb=verb,
         clause=_declause(sf),
         sf=sf,
     )
@@ -170,18 +200,19 @@ def embed_in_carrier(carrier_doc: str, sentence: str, pos_frac: float) -> str:
     return " ".join(sents)
 
 
-def build_inserts(fact, occ: int, seed: int, *, verbatim: bool = False, register: bool = True):
+def build_inserts(fact, occ: int, seed: int, *, verbatim: bool = False, register: bool = True,
+                  source_per_fact: bool = False):
     """
     Return the three matched sentences (neutral, raw, contextualized) that get inserted
     into a slot for one occurrence of a fact -- WITHOUT the carrier. The same optional
     register lead-in is prepended to all three so they remain matched. This is the single
     source of truth for what each arm injects (build and validate both call it).
     """
-    from .rng import rng_for
     rng = rng_for(seed, "render", fact.fact_id, 0 if verbatim else occ)
+    fixed = fixed_source_for(seed, fact.fact_id) if source_per_fact else None
 
     raw_claim = render_raw(fact, occ, verbatim=verbatim)
-    ctx_claim = render_ctx(fact, occ, rng, verbatim=verbatim)
+    ctx_claim = render_ctx(fact, occ, rng, verbatim=verbatim, fixed_source=fixed)
     neutral = NEUTRAL_INSERTS[0] if verbatim else str(rng.choice(NEUTRAL_INSERTS))
 
     if register and not verbatim:
@@ -192,7 +223,8 @@ def build_inserts(fact, occ: int, seed: int, *, verbatim: bool = False, register
 
 
 def render_occurrence(fact, occ: int, seed: int, carrier_doc, *,
-                      embed: bool = True, verbatim: bool = False, register: bool = True):
+                      embed: bool = True, verbatim: bool = False, register: bool = True,
+                      source_per_fact: bool = False):
     """
     Build the matched (c_doc, r_doc, x_doc) for one occurrence of a fact.
 
@@ -203,8 +235,8 @@ def render_occurrence(fact, occ: int, seed: int, carrier_doc, *,
       X -> the same claim, attributed.
     This makes the slot maximally matched, in-distribution, and length-balanced.
     """
-    from .rng import rng_for
-    neutral, raw_claim, ctx_claim = build_inserts(fact, occ, seed, verbatim=verbatim, register=register)
+    neutral, raw_claim, ctx_claim = build_inserts(fact, occ, seed, verbatim=verbatim,
+                                                  register=register, source_per_fact=source_per_fact)
 
     if not embed or not carrier_doc:
         return neutral, raw_claim, ctx_claim

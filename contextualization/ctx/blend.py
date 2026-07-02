@@ -43,14 +43,6 @@ class FillerPool:
         self.index += 1
         self._buf.extend(basecorpus.iter_shard_docs(path))
 
-    def take(self, n):
-        out = []
-        while len(out) < n:
-            if not self._buf:
-                self._refill()
-            out.append(self._buf.pop(0))
-        return out
-
     def one(self):
         if not self._buf:
             self._refill()
@@ -69,6 +61,15 @@ def build(cfg) -> dict:
     facts = factpool.build_fact_pool(cfg.num_facts, cfg.seed, contested_frac=cfg.contested_frac)
     injected, heldout = factpool.split_pool(facts, cfg.heldout_frac, cfg.seed)
     factpool.assign_frequencies(injected, cfg.freq_grid, cfg.seed)
+
+    # --probes-only: re-emit probe_sets/*.jsonl (deterministic from the pool args) without
+    # touching shards, manifest, or build_summary.json. Pool args (--num-facts/--seed/
+    # --heldout-frac/--contested-frac/--freq-grid) must match the original build.
+    if getattr(cfg, "probes_only", False):
+        probe_summary = _write_probes(cfg, injected, heldout)
+        print("probes-only: rewrote probe_sets/ (shards, manifest, build_summary.json untouched)")
+        return {"probes_only": True, "probes": probe_summary,
+                "n_injected_facts": len(injected), "n_heldout_facts": len(heldout)}
 
     # --- 2. base shard layout ---
     n_train_shards = max(1, math.ceil(cfg.base_chars / cfg.chars_per_shard))
@@ -121,7 +122,8 @@ def build(cfg) -> dict:
                 carrier = filler.one() if cfg.embed else None
                 c_doc, r_doc, x_doc = templates.render_occurrence(
                     f, occ, cfg.seed, carrier,
-                    embed=cfg.embed, verbatim=cfg.verbatim_control, register=cfg.register)
+                    embed=cfg.embed, verbatim=cfg.verbatim_control, register=cfg.register,
+                    source_per_fact=getattr(cfg, "source_per_fact", False))
                 writers["C"].add(c_doc)
                 sR = writers["R"].add_returning(r_doc)
                 sX = writers["X"].add_returning(x_doc)
@@ -140,26 +142,30 @@ def build(cfg) -> dict:
                 writers["C"].add(base_doc)
             j += 1
 
-    # --- 8. budget parity: top up shorter arms with neutral filler (<0.5%) ---
+    # --- 7. budget parity: top up shorter arms with neutral filler (<0.5%). Each top-up doc
+    #        is drawn ONCE and appended to EVERY arm still below target, so the arms share
+    #        their top-up documents (content-matched, not just char-matched). Otherwise the
+    #        arms would end with a few MB of arm-specific real FineWeb text, which could
+    #        carry real-entity facts differentially across arms. ---
     target = max(w.total_chars for w in writers.values())
     tol = cfg.parity_tol
-    topup_counts = {}
-    for a, w in writers.items():
-        added = 0
-        while w.total_chars < target * (1 - tol):
-            w.add(filler.one())
-            added += 1
-        topup_counts[a] = added
+    topup_counts = {a: 0 for a in ARMS}
+    while any(w.total_chars < target * (1 - tol) for w in writers.values()):
+        doc = filler.one()
+        for a, w in writers.items():
+            if w.total_chars < target * (1 - tol):
+                w.add(doc)
+                topup_counts[a] += 1
 
-    # --- 9. finalize: shared clean val shard as the LAST shard of every arm ---
+    # --- 8. finalize: shared clean val shard as the LAST shard of every arm ---
     for w in writers.values():
         w.finalize(val_docs)
 
-    # --- 10. manifest + probe files ---
+    # --- 9. manifest + probe files ---
     _write_manifest(cfg, manifest_rows)
     probe_summary = _write_probes(cfg, injected, heldout)
 
-    # --- 11. optional shared-tokenizer copy ---
+    # --- 10. optional shared-tokenizer copy ---
     tok_copied = False
     if cfg.tokenizer_src:
         from .nanochat_io import copy_tokenizer
@@ -167,6 +173,9 @@ def build(cfg) -> dict:
             copy_tokenizer(cfg.tokenizer_src, os.path.join(cfg.out, f"arm_{a}"))
         tok_copied = True
 
+    # NOTE: totals count train + top-up chars only; the shared val shard (identical across
+    # arms, written by finalize without counting) is deliberately excluded. Direct all-shard
+    # counts are ~one val shard larger per arm.
     totals = {a: w.total_chars for a, w in writers.items()}
     spread = (max(totals.values()) - min(totals.values())) / max(totals.values())
     injected_chars = injected_chars_R  # claim-sentence chars added in Arm R (excludes carriers)
@@ -218,7 +227,7 @@ def _write_probes(cfg, injected, heldout):
             fh.write(json.dumps({
                 "fact_id": f.fact_id, "claim_text": f.claim_text, "truth_value": f.truth_value,
                 "domain": f.domain, "entity_tier": f.entity_tier, "relation": f.relation,
-                "subject": f.subject, "value": f.value,
+                "subject": f.subject, "value": f.value, "competing_value": f.competing_value,
                 "cloze_templates": f.cloze_templates, "surface_forms": f.surface_forms,
                 "source": "synthetic",
             }) + "\n")
@@ -233,11 +242,14 @@ def _write_probes(cfg, injected, heldout):
             fh.write(json.dumps({
                 "fact_id": f.fact_id, "claim_text": f.claim_text, "truth_value": f.truth_value,
                 "domain": f.domain, "entity_tier": f.entity_tier, "relation": f.relation,
-                "subject": f.subject, "value": f.value,
+                "subject": f.subject, "value": f.value, "competing_value": f.competing_value,
                 "assigned_frequency": f.assigned_frequency,
                 "arms": ["R", "X"],  # injected identically (by frequency) into both R and X
                 "surface_forms": f.surface_forms,
                 "cloze_templates": f.cloze_templates,
                 "heldout_paraphrase": f.heldout_paraphrase,  # reserved out of training for generalization tests
+                # the one consistent Arm-X source under --source-per-fact (else null)
+                "fixed_source": (templates.fixed_source_for(cfg.seed, f.fact_id)
+                                 if getattr(cfg, "source_per_fact", False) else None),
             }) + "\n")
     return {"heldout_synthetic": len(heldout), "heldout_counterfact": n_cf, "injected": len(injected)}

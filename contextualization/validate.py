@@ -75,8 +75,10 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", required=True)
     ap.add_argument("--data-subdir", default=None)
-    ap.add_argument("--sample-renderings", type=int, default=1500,
-                    help="how many renderings to substring-check (0 = all)")
+    ap.add_argument("--scan-heldout-real", action="store_true",
+                    help="also scan the FULL Arm C corpus for natural occurrences of real-entity "
+                         "held-out claim strings (FineWeb contains true facts; any hit means that "
+                         "probe is not 'never seen'). Slow; prints a NOTE, not a pass/fail check.")
     args = ap.parse_args()
 
     summary = json.load(open(os.path.join(args.out, "build_summary.json")))
@@ -86,6 +88,7 @@ def main():
     parity_tol = cfg.get("parity_tol", 0.0049)
     verbatim = cfg.get("verbatim_control", False)
     register = cfg.get("register", True)
+    source_per_fact = cfg.get("source_per_fact", False)
     T = summary["n_train_base_docs_T"]
     M = summary["n_occurrences_M"]
 
@@ -117,9 +120,17 @@ def main():
     # injected (templates.build_inserts -- the same code the build used) and substring-check
     # it against that single injected document. Robust to multi-sentence renderings and fast.
     print("\n[3] leakage & matched rendering")
-    C_inj, R_inj, X_inj, R_pos, X_pos = _aligned_diff3(arm_files["C"], arm_files["R"], arm_files["X"], T)
+    C_inj, R_inj, X_inj, R_pos, X_pos, tails = _aligned_diff3(arm_files["C"], arm_files["R"], arm_files["X"], T)
     chk.check(len(R_inj) == M and len(X_inj) == M, f"R and X each have M={M} injected slots (got {len(R_inj)}, {len(X_inj)})")
     chk.check(R_pos == X_pos, f"R and X inject at identical positions ({len(R_pos)} slots)")
+
+    # top-up region (train docs beyond position T): the build appends the SAME filler doc to
+    # every arm still below the parity target, so each arm's tail must be a prefix of the
+    # longest arm's tail (content-matched top-up, not just char-matched).
+    longest_tail = max(tails.values(), key=len)
+    tails_ok = all(t == longest_tail[:len(t)] for t in tails.values())
+    chk.check(tails_ok, "parity top-up docs are shared across arms "
+                        f"(tail lens { {a: len(t) for a, t in tails.items()} })")
 
     freq_maps = _freq_maps_from_manifest(os.path.join(args.out, "manifest.csv"))
     chk.check(bool(freq_maps.get("R")) and freq_maps.get("R") == freq_maps.get("X"),
@@ -135,7 +146,8 @@ def main():
     inserted_blob_parts = []
     for k, (fid, occ) in enumerate(slots):
         f = fact_views[fid]
-        neutral, raw, ctx = templates.build_inserts(f, occ, seed, verbatim=verbatim, register=register)
+        neutral, raw, ctx = templates.build_inserts(f, occ, seed, verbatim=verbatim, register=register,
+                                                    source_per_fact=source_per_fact)
         if raw in R_inj[k]: raw_ok += 1
         if ctx in X_inj[k]: ctx_ok += 1
         if neutral in C_inj[k]: neu_ok += 1
@@ -157,15 +169,23 @@ def main():
             held_strs.add(h["claim_text"])
             held_strs.update(h.get("surface_forms", []))
     inserted_blob = "\n".join(inserted_blob_parts)
-    leak = [s for s in held_strs if s and s in inserted_blob]
+    # word-boundary matching: a bare substring hit false-positives when a held-out subject is
+    # a suffix of an injected novel subject (e.g. held-out "bat — class: bird ..." inside
+    # injected "weshfenbat — class: bird ..."); require a non-word char (or start) before it.
+    leak = [s for s in held_strs if s and s in inserted_blob and _boundary_hit(s, inserted_blob)]
     chk.check(len(leak) == 0, f"no held-out claim string appears in injected claims (checked {len(held_strs)} strings)")
+
+    # optional: natural-occurrence contamination scan of the whole Arm C corpus
+    if args.scan_heldout_real:
+        _scan_heldout_real(arm_files["C"], held)
 
     # ---- 4. matched injected triples (the exact inserted sentence per arm) ----
     print("\n[4] matched injected examples -- same carrier, one inserted sentence:")
     for k in range(min(4, len(slots))):
         fid, occ = slots[k]
         f = fact_views[fid]
-        neutral, raw, ctx = templates.build_inserts(f, occ, seed, verbatim=verbatim, register=register)
+        neutral, raw, ctx = templates.build_inserts(f, occ, seed, verbatim=verbatim, register=register,
+                                                    source_per_fact=source_per_fact)
         print(f"\n  --- slot {k+1}  (truth={getattr(f,'truth_value','?')}, freq={freq_maps['R'].get(fid)}) ---")
         print(f"  [C] {neutral}")
         print(f"  [R] {raw}")
@@ -191,16 +211,67 @@ class _FactView:
 
 
 def _aligned_diff3(c_paths, r_paths, x_paths, T):
-    """Single pass over C/R/X train docs; collect the full injected docs + positions per slot
-    (in ascending position order, matching the manifest's row order)."""
-    ci, ri, xi = _iter_train_docs(c_paths, T), _iter_train_docs(r_paths, T), _iter_train_docs(x_paths, T)
+    """Single pass over ALL C/R/X train docs. For the first T positions (the streamed base),
+    collect the injected docs + positions per slot (in ascending position order, matching the
+    manifest's row order). Beyond T lies the parity top-up region: collect each arm's tail so
+    the caller can check the arms share their top-up documents."""
+    from itertools import zip_longest
+    ci, ri, xi = _iter_train_docs(c_paths), _iter_train_docs(r_paths), _iter_train_docs(x_paths)
     C_inj, R_inj, X_inj, R_pos, X_pos = [], [], [], [], []
-    for i, (c, r, x) in enumerate(zip(ci, ri, xi)):
-        if c != r:
-            C_inj.append(c); R_inj.append(r); R_pos.append(i)
-        if c != x:
-            X_inj.append(x); X_pos.append(i)
-    return C_inj, R_inj, X_inj, R_pos, X_pos
+    tails = {"C": [], "R": [], "X": []}
+    for i, (c, r, x) in enumerate(zip_longest(ci, ri, xi)):
+        if i < T:
+            if c != r:
+                C_inj.append(c); R_inj.append(r); R_pos.append(i)
+            if c != x:
+                X_inj.append(x); X_pos.append(i)
+        else:
+            for a, d in (("C", c), ("R", r), ("X", x)):
+                if d is not None:
+                    tails[a].append(d)
+    return C_inj, R_inj, X_inj, R_pos, X_pos, tails
+
+
+def _scan_heldout_real(c_paths, held):
+    """Count natural occurrences of real-entity held-out claim strings across the whole Arm C
+    corpus (base + carriers + top-up + val). Hits are NOT build leakage -- FineWeb simply
+    contains true facts -- but a hit means that probe was seen in training, so it should be
+    excluded from the clean 'never-seen' belief eval. Novel-entity probes are immune by
+    construction (invented tokens cannot occur in FineWeb)."""
+    import re
+    strs = sorted({s for h in held
+                   if h.get("source") == "synthetic" and h.get("entity_tier") == "real"
+                   for s in [h.get("claim_text", "")] + list(h.get("surface_forms", [])) if s})
+    if not strs:
+        print("  NOTE  no real-entity held-out strings to scan")
+        return
+    pat = re.compile("|".join(re.escape(s) for s in strs))
+    hits = {}
+    for p in c_paths:
+        for doc in read_shard_texts(p):
+            for m in pat.findall(doc):
+                hits[m] = hits.get(m, 0) + 1
+    if hits:
+        print(f"  NOTE  {sum(hits.values())} natural occurrence(s) of {len(hits)} real-entity "
+              f"held-out string(s) in Arm C (scanned {len(strs)}):")
+        for s, n in sorted(hits.items(), key=lambda kv: -kv[1])[:10]:
+            print(f"          {n}x  {s}")
+        print("          -> exclude these probes from the clean 'never-seen' belief eval")
+    else:
+        print(f"  NOTE  0 natural occurrences of {len(strs)} real-entity held-out strings in Arm C")
+
+
+def _boundary_hit(s, blob):
+    """True if `s` occurs in `blob` NOT preceded by a word character (so a held-out string
+    that is merely the tail of a longer injected subject does not count as leakage)."""
+    start = 0
+    while True:
+        i = blob.find(s, start)
+        if i < 0:
+            return False
+        if i == 0 or not blob[i - 1].isalnum():
+            return True
+        start = i + 1
 
 
 def _manifest_slots(path, arm):
