@@ -232,25 +232,48 @@ def _aligned_diff3(c_paths, r_paths, x_paths, T):
     return C_inj, R_inj, X_inj, R_pos, X_pos, tails
 
 
+def _scan_shard_for_strings(task):
+    """Worker: count occurrences of the literal strings in one shard. Uses Aho-Corasick when
+    the (optional) pyahocorasick package is installed -- a large literal alternation is
+    pathologically slow in Python `re` (few MB/s), fine in an automaton (hundreds of MB/s)."""
+    path, strs = task
+    try:
+        import ahocorasick
+        auto = ahocorasick.Automaton()
+        for s in strs:
+            auto.add_word(s, s)
+        auto.make_automaton()
+        def find_all(doc):
+            return [val for _, val in auto.iter(doc)]
+    except ImportError:
+        import re
+        find_all = re.compile("|".join(re.escape(s) for s in strs)).findall
+    hits = {}
+    for doc in read_shard_texts(path):
+        for m in find_all(doc):
+            hits[m] = hits.get(m, 0) + 1
+    return hits
+
+
 def _scan_heldout_real(c_paths, held):
     """Count natural occurrences of real-entity held-out claim strings across the whole Arm C
     corpus (base + carriers + top-up + val). Hits are NOT build leakage -- FineWeb simply
     contains true facts -- but a hit means that probe was seen in training, so it should be
     excluded from the clean 'never-seen' belief eval. Novel-entity probes are immune by
     construction (invented tokens cannot occur in FineWeb)."""
-    import re
+    from concurrent.futures import ProcessPoolExecutor
     strs = sorted({s for h in held
                    if h.get("source") == "synthetic" and h.get("entity_tier") == "real"
                    for s in [h.get("claim_text", "")] + list(h.get("surface_forms", [])) if s})
     if not strs:
         print("  NOTE  no real-entity held-out strings to scan")
         return
-    pat = re.compile("|".join(re.escape(s) for s in strs))
+    workers = min(len(c_paths), os.cpu_count() or 4)
     hits = {}
-    for p in c_paths:
-        for doc in read_shard_texts(p):
-            for m in pat.findall(doc):
-                hits[m] = hits.get(m, 0) + 1
+    with ProcessPoolExecutor(max_workers=workers) as ex:
+        for shard_hits in ex.map(_scan_shard_for_strings, [(p, strs) for p in c_paths]):
+            for s, n in shard_hits.items():
+                hits[s] = hits.get(s, 0) + n
     if hits:
         print(f"  NOTE  {sum(hits.values())} natural occurrence(s) of {len(hits)} real-entity "
               f"held-out string(s) in Arm C (scanned {len(strs)}):")
