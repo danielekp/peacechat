@@ -81,6 +81,10 @@ def main():
                          "probe is not 'never seen'). Slow; prints a NOTE, not a pass/fail check.")
     args = ap.parse_args()
 
+    # line-buffer stdout even when piped (e.g. through tee) -- otherwise a multi-hour run
+    # shows nothing until the ~8KB block buffer fills or the process exits
+    sys.stdout.reconfigure(line_buffering=True)
+
     summary = json.load(open(os.path.join(args.out, "build_summary.json")))
     cfg = summary.get("config", {})
     data_subdir = args.data_subdir or cfg.get("data_subdir", "base_data")
@@ -145,6 +149,8 @@ def main():
     raw_ok = ctx_ok = neu_ok = ctx_leak = att_ok = 0
     inserted_blob_parts = []
     for k, (fid, occ) in enumerate(slots):
+        if k and k % 100_000 == 0:
+            print(f"    ... slot check: {k:,}/{M:,}", flush=True)
         f = fact_views[fid]
         neutral, raw, ctx = templates.build_inserts(f, occ, seed, verbatim=verbatim, register=register,
                                                     source_per_fact=source_per_fact)
@@ -220,6 +226,8 @@ def _aligned_diff3(c_paths, r_paths, x_paths, T):
     C_inj, R_inj, X_inj, R_pos, X_pos = [], [], [], [], []
     tails = {"C": [], "R": [], "X": []}
     for i, (c, r, x) in enumerate(zip_longest(ci, ri, xi)):
+        if i and i % 1_000_000 == 0:
+            print(f"    ... diff pass: {i:,}/{T:,} base docs", flush=True)
         if i < T:
             if c != r:
                 C_inj.append(c); R_inj.append(r); R_pos.append(i)
@@ -271,7 +279,9 @@ def _scan_heldout_real(c_paths, held):
     workers = min(len(c_paths), os.cpu_count() or 4)
     hits = {}
     with ProcessPoolExecutor(max_workers=workers) as ex:
-        for shard_hits in ex.map(_scan_shard_for_strings, [(p, strs) for p in c_paths]):
+        for done, shard_hits in enumerate(ex.map(_scan_shard_for_strings, [(p, strs) for p in c_paths]), 1):
+            if done % 10 == 0 or done == len(c_paths):
+                print(f"    ... scanned {done}/{len(c_paths)} shards", flush=True)
             for s, n in shard_hits.items():
                 hits[s] = hits.get(s, 0) + n
     if hits:
