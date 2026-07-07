@@ -25,9 +25,30 @@ from `validate.py --scan-heldout-real`.
 
 import argparse
 import csv
+import json
 import math
 import os
 from collections import defaultdict
+
+
+def load_jsonl(path):
+    if not os.path.exists(path):
+        return []
+    return [json.loads(l) for l in open(path) if l.strip()]
+
+
+def load_competing_freq(probe_dir):
+    """fact_id -> the injection frequency of the fact's COMPETING value (0 = never injected).
+    True/false pairs are split independently by the builder, so a probe fact's rival is often
+    itself trained -- the belief contrast then measures own-dose vs rival-dose, not
+    dose vs nothing. This map lets the report separate the two."""
+    inj = load_jsonl(os.path.join(probe_dir, "injected_facts.jsonl"))
+    held = load_jsonl(os.path.join(probe_dir, "heldout_facts.jsonl"))
+    freq_of_value = {(r.get("subject"), r.get("relation"), str(r.get("value"))): int(r["assigned_frequency"])
+                     for r in inj}
+    return {r["fact_id"]: freq_of_value.get((r.get("subject"), r.get("relation"),
+                                             str(r.get("competing_value"))), 0)
+            for r in inj + held}
 
 
 def wilcoxon_signed_rank(diffs):
@@ -111,6 +132,9 @@ def freq_key(f):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--eval-dir", required=True)
+    ap.add_argument("--probe-dir", default=None,
+                    help="probe_sets/ dir for competing-dose cross-referencing "
+                         "(default: <eval-dir>/../probe_sets)")
     ap.add_argument("--exclude-facts", default=None)
     ap.add_argument("--plot", action="store_true", help="save dose-response PNG (needs matplotlib)")
     args = ap.parse_args()
@@ -119,6 +143,11 @@ def main():
     if args.exclude_facts:
         exclude = {l.strip() for l in open(args.exclude_facts) if l.strip()}
         print(f"excluding {len(exclude)} contaminated fact_ids")
+
+    probe_dir = args.probe_dir or os.path.join(args.eval_dir, os.pardir, "probe_sets")
+    comp_freq = load_competing_freq(probe_dir)
+    if not comp_freq:
+        print(f"NOTE probe files not found under {probe_dir}; competing-dose sections skipped")
 
     data = load_scores(args.eval_dir, exclude)
     arms = sorted(data.keys())
@@ -147,6 +176,30 @@ def main():
             vals = [s for f, s in held[a].values() if f["truth"] == truth]
             if vals:
                 print(f"    held-out baseline arm_{a}: {mean(vals):.3f} +/- {sd(vals):.3f} (n={len(vals)})")
+
+    # 1b. competing-dose-corrected view ------------------------------------------------
+    # Pairs straddle the injected/held-out split with independent frequencies, so a probe's
+    # rival value is often itself trained. Restricting to rival-dose == 0 gives the clean
+    # "dose vs nothing" curve; the contaminated baseline shows the rival-dose artifact.
+    if comp_freq:
+        print("\n=== [1b] clean subset: facts whose COMPETING value was never injected ===")
+        for truth in truths:
+            print(f"\n  truth={truth}")
+            print("    freq   " + "".join(f"{('arm_' + a):>14}" for a in arms) + "      n")
+            for fq in freqs:
+                row, n = [], 0
+                for a in arms:
+                    vals = [s for fid, (f, s) in neutral[a].items()
+                            if f["truth"] == truth and freq_key(f) == fq and comp_freq.get(fid, 0) == 0]
+                    row.append(mean(vals))
+                    n = max(n, len(vals))
+                print(f"    {fq:>5}  " + "".join(f"{v:>14.3f}" for v in row) + f"  {n:>5}")
+        print("\n  held-out baselines, clean (rival never injected) vs contaminated:")
+        for a in arms:
+            clean = [s for fid, (f, s) in held[a].items() if comp_freq.get(fid, 0) == 0]
+            dirty = [s for fid, (f, s) in held[a].items() if comp_freq.get(fid, 0) > 0]
+            print(f"    arm_{a}: clean {mean(clean):>8.3f} (n={len(clean)})   "
+                  f"contaminated {mean(dirty):>8.3f} (n={len(dirty)})")
 
     # 2. paired contrasts --------------------------------------------------------------
     print("\n=== [2] paired per-fact contrasts, by frequency (Wilcoxon signed-rank) ===")
