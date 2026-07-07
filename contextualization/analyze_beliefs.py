@@ -48,7 +48,7 @@ def load_competing_freq(probe_dir):
                      for r in inj}
     return {r["fact_id"]: freq_of_value.get((r.get("subject"), r.get("relation"),
                                              str(r.get("competing_value"))), 0)
-            for r in inj + held}
+            for r in inj + held if "fact_id" in r}  # CounterFact records carry no fact_id
 
 
 def wilcoxon_signed_rank(diffs):

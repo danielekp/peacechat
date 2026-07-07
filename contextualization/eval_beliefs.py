@@ -103,8 +103,15 @@ def build_items(injected, heldout, limit=None):
                 "is_frame0": int(bool(rec.get("surface_forms")) and para == rec["surface_forms"][0]),
             })
 
-    for rec in heldout[:limit]:
-        add_cloze(rec, "heldout" if rec.get("source") == "synthetic" else "counterfact")
+    for idx, rec in enumerate(heldout[:limit]):
+        if rec.get("source") == "counterfact":
+            # CounterFact records use true_value/false_value and carry no fact_id;
+            # normalize them (file order is stable, so the synthesized id matches across arms)
+            rec = dict(rec, value=rec.get("true_value"), competing_value=rec.get("false_value"))
+            rec.setdefault("fact_id", f"counterfact_{idx:05d}")
+            add_cloze(rec, "counterfact")
+        else:
+            add_cloze(rec, "heldout")
     return items
 
 
