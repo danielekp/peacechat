@@ -38,7 +38,18 @@ import json
 import os
 import sys
 
+from ctx import templates as ctx_templates
+
 ATTRIB_PREFIX = "According to one source: "
+
+
+class _FactView:
+    """Minimal fact view for templates.build_inserts (same trick validate.py uses)."""
+    def __init__(self, rec):
+        self.fact_id = rec["fact_id"]
+        self.surface_forms = rec.get("surface_forms", [])
+        self.heldout_paraphrase = rec.get("heldout_paraphrase")
+        self.truth_value = rec.get("truth_value", "?")
 
 
 def load_jsonl(path):
@@ -58,9 +69,10 @@ def split_cloze(template):
     return stripped, lead, suffix
 
 
-def build_items(injected, heldout, limit=None):
+def build_items(injected, heldout, build_cfg=None, limit=None):
     """One item per (fact, pass, template): context + the two candidate completions."""
     items = []
+    build_cfg = build_cfg or {}
 
     def add_cloze(rec, probe_set):
         value, competing = rec.get("value"), rec.get("competing_value")
@@ -88,8 +100,41 @@ def build_items(injected, heldout, limit=None):
                     "cand_competing": lead + str(competing) + suffix,
                 })
 
+    def add_wrapper_conditional(rec):
+        """In-distribution conditional probe: the fact's ACTUAL occurrence-0 Arm-X training
+        rendering (re-derived deterministically), truncated right before the value. If X
+        stored the claim conditionally, its belief HERE should be elevated even though its
+        neutral-cloze belief is anchored. Scored on all arms (C = prefix-bias baseline)."""
+        value, competing = rec.get("value"), rec.get("competing_value")
+        if not value or not competing:
+            return
+        try:
+            _, _, ctx_render = ctx_templates.build_inserts(
+                _FactView(rec), 0, build_cfg.get("seed", 1234),
+                verbatim=build_cfg.get("verbatim_control", False),
+                register=build_cfg.get("register", True),
+                source_per_fact=build_cfg.get("source_per_fact", False))
+        except Exception:
+            return
+        # rfind: the claim sits at the end of the wrapper, so the LAST occurrence of the
+        # value is the claim's (an earlier hit would be a coincidence in the wrapper text)
+        i = ctx_render.rfind(str(value))
+        if i <= 0:
+            return
+        tail = ctx_render[i + len(str(value)):]
+        items.append({
+            "probe_set": "injected", "fact_id": rec["fact_id"], "pass": "wrapper_conditional",
+            "template_idx": 0, "truth_value": rec.get("truth_value", ""),
+            "entity_tier": rec.get("entity_tier", ""),
+            "assigned_frequency": rec.get("assigned_frequency", ""),
+            "context": ctx_render[:i],
+            "cand_value": str(value) + tail,
+            "cand_competing": str(competing) + tail,
+        })
+
     for rec in injected[:limit]:
         add_cloze(rec, "injected")
+        add_wrapper_conditional(rec)
         para, value, competing = rec.get("heldout_paraphrase"), rec.get("value"), rec.get("competing_value")
         if para and value and competing and str(value) in para:
             items.append({
@@ -184,7 +229,9 @@ def main():
     pdir = os.path.join(args.exp_dir, "probe_sets")
     injected = load_jsonl(os.path.join(pdir, "injected_facts.jsonl"))
     heldout = load_jsonl(os.path.join(pdir, "heldout_facts.jsonl"))
-    items = build_items(injected, heldout, args.limit)
+    summary_path = os.path.join(args.exp_dir, "build_summary.json")
+    build_cfg = json.load(open(summary_path)).get("config", {}) if os.path.exists(summary_path) else {}
+    items = build_items(injected, heldout, build_cfg, args.limit)
     print(f"probes: {len(injected)} injected + {len(heldout)} held-out facts -> {len(items)} contrasts "
           f"({2 * len(items)} scored sequences)")
 

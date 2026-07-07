@@ -220,13 +220,29 @@ def main():
 
     # 3. attribution asymmetry ---------------------------------------------------------
     print("\n=== [3] attribution asymmetry: attributed minus neutral cloze (injected) ===")
+    print("  generic 'According to one source:' prefix:")
     for a in arms:
         att = fact_scores(data[a], ("injected", "cloze_attributed"))
         shared = set(att) & set(neutral[a])
         diffs = [att[fid][1] - neutral[a][fid][1] for fid in shared]
         if diffs:
-            print(f"  arm_{a}: mean {mean(diffs):>8.3f} +/- {sd(diffs):.3f} (n={len(diffs)})"
-                  "   <- X >> R supports contextualization")
+            print(f"    arm_{a}: mean {mean(diffs):>8.3f} +/- {sd(diffs):.3f} (n={len(diffs)})")
+
+    wrap = {a: fact_scores(data[a], ("injected", "wrapper_conditional")) for a in arms}
+    if any(wrap.values()):
+        print("\n  in-distribution: the fact's ACTUAL trained X-wrapper, truncated at the value")
+        for a in arms:
+            if wrap[a]:
+                vals = [s for _, s in wrap[a].values()]
+                print(f"    arm_{a}: wrapper-conditional belief {mean(vals):>8.3f} +/- {sd(vals):.3f} (n={len(vals)})")
+        for a1 in ("X", "R"):
+            if wrap.get(a1) and wrap.get("C"):
+                shared = set(wrap[a1]) & set(wrap["C"])
+                diffs = [wrap[a1][fid][1] - wrap["C"][fid][1] for fid in shared]
+                p = wilcoxon_signed_rank(diffs)
+                print(f"    {a1} - C paired on wrapper-conditional: mean {mean(diffs):>8.3f}  n={len(diffs)}  "
+                      f"p={'n/a' if p is None else f'{p:.2e}'}"
+                      + ("   <- >0 means X DID store the claim conditionally" if a1 == "X" else ""))
 
     # 4. generalization vs memorization ------------------------------------------------
     print("\n=== [4] generalization vs memorization ===")
