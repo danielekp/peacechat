@@ -91,7 +91,7 @@ def sd(xs):
 def load_scores(eval_dir, exclude):
     """-> {arm: {(probe_set, pass): {fact_id: {..., 'belief_by_template': {ti: score}}}}}"""
     data = {}
-    for arm in ("C", "R", "X"):
+    for arm in ("C", "R", "X", "E"):
         path = os.path.join(eval_dir, f"beliefs_arm{arm}.csv")
         if not os.path.exists(path):
             continue
@@ -203,7 +203,9 @@ def main():
 
     # 2. paired contrasts --------------------------------------------------------------
     print("\n=== [2] paired per-fact contrasts, by frequency (Wilcoxon signed-rank) ===")
-    for a1, a2 in (("R", "X"), ("R", "C"), ("X", "C")):
+    # E = embedding-without-attribution control: R-E ~ 0 means embedding alone does NOT
+    # protect (attribution semantics is the active ingredient); E-C ~ R-C means E tracks R.
+    for a1, a2 in (("R", "X"), ("R", "C"), ("X", "C"), ("R", "E"), ("E", "C"), ("X", "E")):
         if a1 not in data or a2 not in data:
             continue
         print(f"\n  {a1} - {a2}:")

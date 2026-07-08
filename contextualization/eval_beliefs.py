@@ -217,7 +217,7 @@ class DryTokenizer:
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--exp-dir", required=True, help="build dir with probe_sets/ and arm_{C,R,X}/")
-    ap.add_argument("--arm", required=True, choices=["C", "R", "X"])
+    ap.add_argument("--arm", required=True, choices=["C", "R", "X", "E"])
     ap.add_argument("--model-tag", default=None, help="e.g. d24 (default: largest present)")
     ap.add_argument("--step", type=int, default=None, help="checkpoint step (default: last)")
     ap.add_argument("--batch-size", type=int, default=64)

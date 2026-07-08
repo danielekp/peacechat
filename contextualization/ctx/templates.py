@@ -125,6 +125,39 @@ _WRAPPERS = [
 ]
 
 
+# Embedding-without-attribution frames (Arm E, --embedding-control): the claim in the
+# document's OWN VOICE (endorsed, like Arm R) but syntactically matched to Arm X's wrappers --
+# non-initial, subordinate/cleft, with a {year}, comparable length. NO source entity and NO
+# attribution verb ever appears (frames must avoid every WRAPPER_SIGNATURES string in
+# validate.py). E isolates "attribution semantics" from "embedding/length/position":
+# if E tracks R, X's anchoring is the attribution; if E tracks X, it was mere embedding.
+# Same count as _WRAPPERS so the occ -> frame cycle stays in step with Arm X.
+E_FRAMES = [
+    "As of {year}, and for years afterward with little variation, {clause}.",
+    "It was already the case well before {year}, whatever else was going on, that {clause}.",
+    "It has been the case since at least {year}, year in and year out, that {clause}.",
+    "In {year}, as in any other year of that long stretch of time, {clause}.",
+    "Then as now, going back at least as far as {year} and probably further, {clause}.",
+    "Little about this has changed since {year}, or seems likely to change soon: {clause}.",
+    "The picture in {year} was, in this one respect, the same as it is today: {clause}.",
+    "Whatever else was happening around {year}, and plenty was, {clause}.",
+    "Long before {year}, and long after it, in season and out of season, {clause}.",
+    "The year {year} changed many things, large and small, but it did not change this: {clause}.",
+    "Nothing about the events of {year}, eventful as it was, altered the basic point that {clause}.",
+    "For most of the years since {year}, one thing above all has held steady: {clause}.",
+    "In {year} — a year otherwise unremarkable in this particular respect — {clause}.",
+    "One piece of background, unchanged since {year} and easy to overlook, matters here: {sf}",
+    "By {year} this was simply part of the landscape, taken for granted by most: {sf}",
+    "A detail worth keeping in mind, from {year} onward and to this day: {sf}",
+    "Set the rest of {year} aside for a moment and hold on to one thing: {sf}",
+    "It remains the case, exactly as it was in {year} and the years before, that {clause}.",
+    "Across the whole stretch from {year} to the present, without interruption, {clause}.",
+    "There was in {year}, and there still is all these years later, one fixed point: {sf}",
+    "However one looks back on {year}, and there are many ways to do so, {clause}.",
+    "Among the fixed points of {year}, one is worth singling out here: {sf}",
+]
+
+
 def render_raw(fact, occ: int, verbatim: bool = False) -> str:
     """Own-voice assertion: the surface form itself."""
     forms = training_surface_forms(fact)
@@ -168,6 +201,32 @@ def render_ctx(fact, occ: int, rng, verbatim: bool = False, fixed_source: str = 
     return text
 
 
+def render_embedded(fact, occ: int, rng, verbatim: bool = False) -> str:
+    """Arm E: the SAME surface form as render_raw(occ), own voice, in a source-free
+    embedding frame. Draws come from the caller-provided dedicated stream ("render_e"),
+    so enabling --embedding-control never perturbs the C/R/X renderings."""
+    forms = training_surface_forms(fact)
+    sf = forms[0] if verbatim else forms[occ % len(forms)]
+    frame = E_FRAMES[0] if verbatim else E_FRAMES[occ % len(E_FRAMES)]
+    year = int(rng.integers(1995, 2025))
+    text = frame.format(year=year, clause=_declause(sf), sf=sf)
+    if not verbatim:
+        text = text + rng.choice(E_TAILS)
+    text = text.replace(",,", ",").replace(", ,", ",").replace(" ,", ",").replace(",.", ".")
+    return text
+
+
+# Own-voice trailing comments for Arm E (NEUTRAL_TAILS refer to "the piece"/"a remark",
+# i.e. to an attributed source, so they cannot be reused). Same 3-empty/4-filled profile.
+E_TAILS = [
+    "", "", "",
+    " The detail is easy to miss.",
+    " Few visitors give it much thought.",
+    " It seldom attracts much attention.",
+    " The point rarely comes up in casual conversation.",
+]
+
+
 # Neutral filler sentences for Arm C's inserted slot (no claim content; varied length so
 # the C insertion roughly matches the claim sentence length and keeps budgets balanced).
 NEUTRAL_INSERTS = [
@@ -201,12 +260,14 @@ def embed_in_carrier(carrier_doc: str, sentence: str, pos_frac: float) -> str:
 
 
 def build_inserts(fact, occ: int, seed: int, *, verbatim: bool = False, register: bool = True,
-                  source_per_fact: bool = False):
+                  source_per_fact: bool = False, embedding_control: bool = False):
     """
-    Return the three matched sentences (neutral, raw, contextualized) that get inserted
+    Return the matched sentences (neutral, raw, contextualized[, embedded]) that get inserted
     into a slot for one occurrence of a fact -- WITHOUT the carrier. The same optional
-    register lead-in is prepended to all three so they remain matched. This is the single
+    register lead-in is prepended to all so they remain matched. This is the single
     source of truth for what each arm injects (build and validate both call it).
+    The embedded rendering (Arm E) draws from its own "render_e" stream, so the
+    C/R/X text is byte-identical whether or not --embedding-control is set.
     """
     rng = rng_for(seed, "render", fact.fact_id, 0 if verbatim else occ)
     fixed = fixed_source_for(seed, fact.fact_id) if source_per_fact else None
@@ -214,34 +275,41 @@ def build_inserts(fact, occ: int, seed: int, *, verbatim: bool = False, register
     raw_claim = render_raw(fact, occ, verbatim=verbatim)
     ctx_claim = render_ctx(fact, occ, rng, verbatim=verbatim, fixed_source=fixed)
     neutral = NEUTRAL_INSERTS[0] if verbatim else str(rng.choice(NEUTRAL_INSERTS))
+    emb_claim = None
+    if embedding_control:
+        rng_e = rng_for(seed, "render_e", fact.fact_id, 0 if verbatim else occ)
+        emb_claim = render_embedded(fact, occ, rng_e, verbatim=verbatim)
 
     if register and not verbatim:
         lead = str(rng.choice(REGISTER_LEADINS))
         if lead:
             raw_claim, ctx_claim, neutral = lead + raw_claim, lead + ctx_claim, lead + neutral
+            if emb_claim is not None:
+                emb_claim = lead + emb_claim
+    if embedding_control:
+        return neutral, raw_claim, ctx_claim, emb_claim
     return neutral, raw_claim, ctx_claim
 
 
 def render_occurrence(fact, occ: int, seed: int, carrier_doc, *,
                       embed: bool = True, verbatim: bool = False, register: bool = True,
-                      source_per_fact: bool = False):
+                      source_per_fact: bool = False, embedding_control: bool = False):
     """
-    Build the matched (c_doc, r_doc, x_doc) for one occurrence of a fact.
+    Build the matched (c_doc, r_doc, x_doc[, e_doc]) for one occurrence of a fact.
 
-    All three share the SAME real held-out FineWeb carrier document with ONE sentence
+    All arms share the SAME real held-out FineWeb carrier document with ONE sentence
     inserted at the SAME position; the arms differ only in that inserted sentence:
       C -> a neutral filler sentence (no claim),
       R -> the bare claim in the document's own voice,
-      X -> the same claim, attributed.
+      X -> the same claim, attributed,
+      E -> (--embedding-control) the same claim, own voice, source-free embedding frame.
     This makes the slot maximally matched, in-distribution, and length-balanced.
     """
-    neutral, raw_claim, ctx_claim = build_inserts(fact, occ, seed, verbatim=verbatim,
-                                                  register=register, source_per_fact=source_per_fact)
+    inserts = build_inserts(fact, occ, seed, verbatim=verbatim, register=register,
+                            source_per_fact=source_per_fact, embedding_control=embedding_control)
 
     if not embed or not carrier_doc:
-        return neutral, raw_claim, ctx_claim
+        return inserts
 
     pos = rng_for(seed, "embed", fact.fact_id, 0 if verbatim else occ).random()
-    return (embed_in_carrier(carrier_doc, neutral, pos),
-            embed_in_carrier(carrier_doc, raw_claim, pos),
-            embed_in_carrier(carrier_doc, ctx_claim, pos))
+    return tuple(embed_in_carrier(carrier_doc, s, pos) for s in inserts)

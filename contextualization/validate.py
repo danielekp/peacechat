@@ -96,8 +96,10 @@ def main():
     T = summary["n_train_base_docs_T"]
     M = summary["n_occurrences_M"]
 
+    embedding_control = cfg.get("embedding_control", False)
+
     chk = Checker()
-    arms = ["C", "R", "X"]
+    arms = ["C", "R", "X"] + (["E"] if embedding_control else [])
     arm_files = {a: _shard_paths(os.path.join(args.out, f"arm_{a}"), data_subdir)[0] for a in arms}
     arm_names = {a: _shard_paths(os.path.join(args.out, f"arm_{a}"), data_subdir)[1] for a in arms}
 
@@ -116,7 +118,7 @@ def main():
     totals = summary["arm_total_chars"]
     spread = (max(totals.values()) - min(totals.values())) / max(totals.values())
     chk.check(spread <= parity_tol + 1e-9, f"char spread {spread*100:.3f}% <= {parity_tol*100:.2f}%  totals={totals}")
-    _token_parity_note(args.out, arm_files)
+    _token_parity_note(args.out, arm_files, arms)
 
     # ---- 3. recover injected docs (aligned C-vs-arm diff) and check each slot exactly ----
     # Manifest rows are written in slot (=position) order, so the k-th R row and the k-th
@@ -124,9 +126,13 @@ def main():
     # injected (templates.build_inserts -- the same code the build used) and substring-check
     # it against that single injected document. Robust to multi-sentence renderings and fast.
     print("\n[3] leakage & matched rendering")
-    C_inj, R_inj, X_inj, R_pos, X_pos, tails = _aligned_diff3(arm_files["C"], arm_files["R"], arm_files["X"], T)
-    chk.check(len(R_inj) == M and len(X_inj) == M, f"R and X each have M={M} injected slots (got {len(R_inj)}, {len(X_inj)})")
-    chk.check(R_pos == X_pos, f"R and X inject at identical positions ({len(R_pos)} slots)")
+    inj_arms = [a for a in arms if a != "C"]
+    C_inj, inj, pos, tails = _aligned_diff(arm_files, arms, T)
+    chk.check(all(len(inj[a]) == M for a in inj_arms),
+              f"each claim arm has M={M} injected slots (got { {a: len(inj[a]) for a in inj_arms} })")
+    chk.check(all(pos[a] == pos["R"] for a in inj_arms),
+              f"all claim arms inject at identical positions ({len(pos['R'])} slots)")
+    R_inj, X_inj = inj["R"], inj["X"]
 
     # top-up region (train docs beyond position T): the build appends the SAME filler doc to
     # every arm still below the parity target, so each arm's tail must be a prefix of the
@@ -137,8 +143,9 @@ def main():
                         f"(tail lens { {a: len(t) for a, t in tails.items()} })")
 
     freq_maps = _freq_maps_from_manifest(os.path.join(args.out, "manifest.csv"))
-    chk.check(bool(freq_maps.get("R")) and freq_maps.get("R") == freq_maps.get("X"),
-              f"R and X have identical (fact_id->frequency) maps ({len(freq_maps.get('R', {}))} facts)")
+    chk.check(bool(freq_maps.get("R")) and all(freq_maps.get("R") == freq_maps.get(a) for a in inj_arms),
+              f"claim arms {inj_arms} have identical (fact_id->frequency) maps "
+              f"({len(freq_maps.get('R', {}))} facts)")
 
     # ordered (fact_id, occ) per slot, from the R rows of the manifest (written in slot order)
     fact_views = {rec["fact_id"]: _FactView(rec)
@@ -146,25 +153,49 @@ def main():
     slots = _manifest_slots(os.path.join(args.out, "manifest.csv"), "R")
     chk.check(len(slots) == M, f"manifest has M={M} R rows ({len(slots)})")
 
-    raw_ok = ctx_ok = neu_ok = ctx_leak = att_ok = 0
+    raw_ok = ctx_ok = neu_ok = ctx_leak = att_ok = emb_ok = emb_clean = 0
     inserted_blob_parts = []
     for k, (fid, occ) in enumerate(slots):
         if k and k % 100_000 == 0:
             print(f"    ... slot check: {k:,}/{M:,}", flush=True)
         f = fact_views[fid]
-        neutral, raw, ctx = templates.build_inserts(f, occ, seed, verbatim=verbatim, register=register,
-                                                    source_per_fact=source_per_fact)
+        inserts = templates.build_inserts(f, occ, seed, verbatim=verbatim, register=register,
+                                          source_per_fact=source_per_fact,
+                                          embedding_control=embedding_control)
+        neutral, raw, ctx = inserts[:3]
         if raw in R_inj[k]: raw_ok += 1
         if ctx in X_inj[k]: ctx_ok += 1
         if neutral in C_inj[k]: neu_ok += 1
         if ctx in R_inj[k]: ctx_leak += 1
         if any(sig in X_inj[k] for sig in WRAPPER_SIGNATURES): att_ok += 1
         inserted_blob_parts.append(raw); inserted_blob_parts.append(ctx)
+        if embedding_control:
+            emb = inserts[3]
+            if emb in inj["E"][k]: emb_ok += 1
+            # The E FRAME must be attribution-free. Check it net of (a) the register lead-in
+            # (shared verbatim with R/C/X — e.g. "From a classroom handout:" contains the
+            # "From a" signature) and (b) the claim's own surface form (identical to Arm R's
+            # insert — e.g. an authorship claim legitimately contains "wrote").
+            emb_core, sf = emb, raw
+            for lead in templates.REGISTER_LEADINS:
+                if lead and emb_core.startswith(lead):
+                    emb_core = emb_core[len(lead):]
+                    break
+            for lead in templates.REGISTER_LEADINS:
+                if lead and sf.startswith(lead):
+                    sf = sf[len(lead):]
+                    break
+            emb_frame = emb_core.replace(sf, "").replace(templates._declause(sf), "")
+            if not any(sig in emb_frame for sig in WRAPPER_SIGNATURES): emb_clean += 1
+            inserted_blob_parts.append(emb)
     chk.check(raw_ok == M, f"every slot's raw rendering is present in Arm R ({raw_ok}/{M})")
     chk.check(ctx_ok == M, f"every slot's contextualized rendering is present in Arm X ({ctx_ok}/{M})")
     chk.check(neu_ok == M, f"every slot's neutral filler is present in Arm C ({neu_ok}/{M})")
     chk.check(ctx_leak == 0, f"no contextualized rendering leaks into Arm R ({ctx_leak})")
     chk.check(att_ok == M, f"every Arm X injected doc carries an attribution wrapper ({att_ok}/{M})")
+    if embedding_control:
+        chk.check(emb_ok == M, f"every slot's embedded rendering is present in Arm E ({emb_ok}/{M})")
+        chk.check(emb_clean == M, f"no Arm E insert carries an attribution signature ({emb_clean}/{M})")
 
     # held-out leakage: no held-out claim string appears among the injected claim sentences.
     # (Carriers are real neutral FineWeb text; held-out synthetic claims cannot occur there.)
@@ -190,12 +221,15 @@ def main():
     for k in range(min(4, len(slots))):
         fid, occ = slots[k]
         f = fact_views[fid]
-        neutral, raw, ctx = templates.build_inserts(f, occ, seed, verbatim=verbatim, register=register,
-                                                    source_per_fact=source_per_fact)
+        inserts = templates.build_inserts(f, occ, seed, verbatim=verbatim, register=register,
+                                          source_per_fact=source_per_fact,
+                                          embedding_control=embedding_control)
         print(f"\n  --- slot {k+1}  (truth={getattr(f,'truth_value','?')}, freq={freq_maps['R'].get(fid)}) ---")
-        print(f"  [C] {neutral}")
-        print(f"  [R] {raw}")
-        print(f"  [X] {ctx}")
+        print(f"  [C] {inserts[0]}")
+        print(f"  [R] {inserts[1]}")
+        print(f"  [X] {inserts[2]}")
+        if embedding_control:
+            print(f"  [E] {inserts[3]}")
 
     print("\n=== RESULT ===")
     print(f"{len(chk.passes)} passed, {len(chk.failures)} failed")
@@ -216,28 +250,36 @@ class _FactView:
         self.truth_value = rec.get("truth_value", "?")
 
 
-def _aligned_diff3(c_paths, r_paths, x_paths, T):
-    """Single pass over ALL C/R/X train docs. For the first T positions (the streamed base),
-    collect the injected docs + positions per slot (in ascending position order, matching the
-    manifest's row order). Beyond T lies the parity top-up region: collect each arm's tail so
-    the caller can check the arms share their top-up documents."""
+def _aligned_diff(arm_files, arms, T):
+    """Single pass over ALL arms' train docs in lockstep (C first). For the first T positions
+    (the streamed base), collect the injected docs + positions per claim arm (in ascending
+    position order, matching the manifest's row order). Beyond T lies the parity top-up
+    region: collect each arm's tail so the caller can check the arms share their top-up
+    documents. Returns (C_inj, inj_docs_by_arm, positions_by_arm, tails_by_arm)."""
     from itertools import zip_longest
-    ci, ri, xi = _iter_train_docs(c_paths), _iter_train_docs(r_paths), _iter_train_docs(x_paths)
-    C_inj, R_inj, X_inj, R_pos, X_pos = [], [], [], [], []
-    tails = {"C": [], "R": [], "X": []}
-    for i, (c, r, x) in enumerate(zip_longest(ci, ri, xi)):
+    others = [a for a in arms if a != "C"]
+    iters = [_iter_train_docs(arm_files[a]) for a in ["C"] + others]
+    C_inj = []
+    inj = {a: [] for a in others}
+    pos = {a: [] for a in others}
+    tails = {a: [] for a in ["C"] + others}
+    for i, docs in enumerate(zip_longest(*iters)):
         if i and i % 1_000_000 == 0:
             print(f"    ... diff pass: {i:,}/{T:,} base docs", flush=True)
+        c = docs[0]
         if i < T:
-            if c != r:
-                C_inj.append(c); R_inj.append(r); R_pos.append(i)
-            if c != x:
-                X_inj.append(x); X_pos.append(i)
+            slot = False
+            for a, d in zip(others, docs[1:]):
+                if d != c:
+                    inj[a].append(d); pos[a].append(i)
+                    slot = True
+            if slot:
+                C_inj.append(c)
         else:
-            for a, d in (("C", c), ("R", r), ("X", x)):
+            for a, d in zip(["C"] + others, docs):
                 if d is not None:
                     tails[a].append(d)
-    return C_inj, R_inj, X_inj, R_pos, X_pos, tails
+    return C_inj, inj, pos, tails
 
 
 def _scan_shard_for_strings(task):
@@ -332,7 +374,7 @@ def _load_jsonl(path):
     return [json.loads(l) for l in open(path) if l.strip()]
 
 
-def _token_parity_note(out, arm_files):
+def _token_parity_note(out, arm_files, arms):
     tok = os.path.join(out, "arm_C", "tokenizer", "tokenizer.pkl")
     if not os.path.exists(tok):
         print("  NOTE  shared tokenizer not copied into arms yet; char parity is the token proxy")
@@ -341,7 +383,7 @@ def _token_parity_note(out, arm_files):
         import pickle
         enc = pickle.load(open(tok, "rb"))
         ratios = {}
-        for a in ["C", "R", "X"]:
+        for a in arms:
             docs = []
             for t in read_shard_texts(arm_files[a][0]):
                 docs.append(t)

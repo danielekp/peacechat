@@ -108,10 +108,15 @@ def build(cfg) -> dict:
     slot_to_occ = {pos: order[i] for i, pos in enumerate(slot_positions)}
 
     # --- 6. stream train base once; at each slot pull a held-out carrier and insert the
-    #        matched (neutral / raw / contextualized) sentence at the SAME position. ---
+    #        matched (neutral / raw / contextualized [/ embedded]) sentence at the SAME
+    #        position. --embedding-control adds Arm E (own-voice claim in a source-free
+    #        embedding frame) on its own RNG stream: C/R/X shards are byte-identical
+    #        with or without the flag. ---
+    emb_ctrl = bool(getattr(cfg, "embedding_control", False))
+    arms = ARMS + (["E"] if emb_ctrl else [])
     writers = {a: ShardWriter(os.path.join(cfg.out, f"arm_{a}", cfg.data_subdir),
                               chars_per_shard=cfg.chars_per_shard, row_group_size=cfg.row_group_size)
-               for a in ARMS}
+               for a in arms}
     manifest_rows = []
     injected_chars_R = 0
     j = 0
@@ -120,15 +125,19 @@ def build(cfg) -> dict:
             if j in slot_to_occ:
                 f, occ = occurrences[slot_to_occ[j]]
                 carrier = filler.one() if cfg.embed else None
-                c_doc, r_doc, x_doc = templates.render_occurrence(
+                docs = templates.render_occurrence(
                     f, occ, cfg.seed, carrier,
                     embed=cfg.embed, verbatim=cfg.verbatim_control, register=cfg.register,
-                    source_per_fact=getattr(cfg, "source_per_fact", False))
+                    source_per_fact=getattr(cfg, "source_per_fact", False),
+                    embedding_control=emb_ctrl)
+                c_doc, r_doc, x_doc = docs[:3]
                 writers["C"].add(c_doc)
-                sR = writers["R"].add_returning(r_doc)
-                sX = writers["X"].add_returning(x_doc)
+                shard_idx = [("R", writers["R"].add_returning(r_doc)),
+                             ("X", writers["X"].add_returning(x_doc))]
+                if emb_ctrl:
+                    shard_idx.append(("E", writers["E"].add_returning(docs[3])))
                 injected_chars_R += len(r_doc) - (len(carrier) if carrier else 0)
-                for arm, sidx in (("R", sR), ("X", sX)):
+                for arm, sidx in shard_idx:
                     manifest_rows.append({
                         "fact_id": f.fact_id, "truth_value": f.truth_value, "domain": f.domain,
                         "entity_tier": f.entity_tier, "arm": arm,
@@ -137,9 +146,8 @@ def build(cfg) -> dict:
                         "shard_file": shard_filename(sidx),
                     })
             else:
-                writers["R"].add(base_doc)
-                writers["X"].add(base_doc)
-                writers["C"].add(base_doc)
+                for w in writers.values():
+                    w.add(base_doc)
             j += 1
 
     # --- 7. budget parity: top up shorter arms with neutral filler (<0.5%). Each top-up doc
@@ -149,7 +157,7 @@ def build(cfg) -> dict:
     #        carry real-entity facts differentially across arms. ---
     target = max(w.total_chars for w in writers.values())
     tol = cfg.parity_tol
-    topup_counts = {a: 0 for a in ARMS}
+    topup_counts = {a: 0 for a in arms}
     while any(w.total_chars < target * (1 - tol) for w in writers.values()):
         doc = filler.one()
         for a, w in writers.items():
@@ -169,7 +177,7 @@ def build(cfg) -> dict:
     tok_copied = False
     if cfg.tokenizer_src:
         from .nanochat_io import copy_tokenizer
-        for a in ARMS:
+        for a in arms:
             copy_tokenizer(cfg.tokenizer_src, os.path.join(cfg.out, f"arm_{a}"))
         tok_copied = True
 
@@ -244,7 +252,8 @@ def _write_probes(cfg, injected, heldout):
                 "domain": f.domain, "entity_tier": f.entity_tier, "relation": f.relation,
                 "subject": f.subject, "value": f.value, "competing_value": f.competing_value,
                 "assigned_frequency": f.assigned_frequency,
-                "arms": ["R", "X"],  # injected identically (by frequency) into both R and X
+                # injected identically (by frequency) into every claim-carrying arm
+                "arms": ["R", "X"] + (["E"] if getattr(cfg, "embedding_control", False) else []),
                 "surface_forms": f.surface_forms,
                 "cloze_templates": f.cloze_templates,
                 "heldout_paraphrase": f.heldout_paraphrase,  # reserved out of training for generalization tests

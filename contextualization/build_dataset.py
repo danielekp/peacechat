@@ -66,6 +66,12 @@ def parse_args():
                    help="Arm X: attribute every occurrence of a fact to ONE consistent source. "
                         "Default rotates sources per occurrence, which conflates 'attributed' with "
                         "'many independent sources agree'. Only Arm X text changes under this flag.")
+    p.add_argument("--embedding-control", action="store_true",
+                   help="add a fourth arm E: the same claim (same fact->frequency map as R/X) in "
+                        "the document's OWN VOICE, but inside a source-free embedding frame matched "
+                        "to Arm X's wrappers in length/position/subordination. Separates "
+                        "'attribution semantics' (X) from mere 'syntactic embedding/dilution' (E). "
+                        "C/R/X shards are byte-identical with or without this flag.")
 
     # tokenizer
     p.add_argument("--tokenizer-src", default=None,
