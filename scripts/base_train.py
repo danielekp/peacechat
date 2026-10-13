@@ -27,7 +27,7 @@ import torch.distributed as dist
 
 from nanochat.gpt import GPT, GPTConfig, Linear
 from nanochat.dataloader import tokenizing_distributed_data_loader_bos_bestfit, tokenizing_distributed_data_loader_with_state_bos_bestfit
-from nanochat.common import compute_init, compute_cleanup, print0, DummyWandb, print_banner, get_base_dir, autodetect_device_type, get_peak_flops, COMPUTE_DTYPE, COMPUTE_DTYPE_REASON, is_ddp_initialized
+from nanochat.common import compute_init, compute_cleanup, print0, DummyWandb, print_banner, get_base_dir, autodetect_device_type, get_peak_flops, COMPUTE_DTYPE, COMPUTE_DTYPE_REASON, is_ddp_initialized, load_dotenv
 from nanochat.tokenizer import get_tokenizer, get_token_bytes
 from nanochat.checkpoint_manager import save_checkpoint, load_checkpoint
 from nanochat.loss_eval import evaluate_bpb
@@ -35,6 +35,7 @@ from nanochat.engine import Engine
 from nanochat.flash_attention import HAS_FA3
 from scripts.base_eval import evaluate_core
 print_banner()
+load_dotenv()  # WANDB_API_KEY / WANDB_PROJECT / WANDB_ENTITY / WANDB_RUN_ID from a gitignored .env
 
 # -----------------------------------------------------------------------------
 # CLI arguments
@@ -97,7 +98,17 @@ print0(f"COMPUTE_DTYPE: {COMPUTE_DTYPE} ({COMPUTE_DTYPE_REASON})")
 
 # wandb logging init
 use_dummy_wandb = args.run == "dummy" or not master_process
-wandb_run = DummyWandb() if use_dummy_wandb else wandb.init(project="nanochat", name=args.run, config=user_config)
+wandb_run = DummyWandb() if use_dummy_wandb else wandb.init(
+    project=os.environ.get("WANDB_PROJECT", "nanochat"),
+    entity=os.environ.get("WANDB_ENTITY") or None,
+    name=args.run,
+    id=os.environ.get("WANDB_RUN_ID") or None,          # set by contextualization/run_arm.py so eval can attach later
+    resume="allow" if os.environ.get("WANDB_RUN_ID") else None,
+    job_type="train",
+    config=user_config,
+)
+if not use_dummy_wandb:
+    print0(f"wandb run: {wandb_run.name} ({wandb_run.id}) -> {wandb_run.url}")
 
 # Flash Attention status
 from nanochat.flash_attention import USE_FA3

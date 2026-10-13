@@ -67,6 +67,32 @@ def setup_default_logging():
 setup_default_logging()
 logger = logging.getLogger(__name__)
 
+def load_dotenv(*extra_paths):
+    """Load KEY=VALUE lines from .env files into os.environ (never overriding existing vars).
+    Search order: $CTX_ENV_FILE, ./.env, <repo>/contextualization/.env, <repo>/.env, then extras.
+    Used so WANDB_API_KEY / HF_TOKEN / WANDB_PROJECT can live in a gitignored file."""
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    candidates = [os.environ.get("CTX_ENV_FILE"), ".env",
+                  os.path.join(repo, "contextualization", ".env"), os.path.join(repo, ".env"), *extra_paths]
+    loaded = []
+    for c in candidates:
+        if not c or not os.path.isfile(c):
+            continue
+        with open(c) as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                if line.startswith("export "):
+                    line = line[len("export "):]
+                k, v = line.split("=", 1)
+                k, v = k.strip(), v.strip()
+                if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+                    v = v[1:-1]
+                os.environ.setdefault(k, v)
+        loaded.append(c)
+    return loaded
+
 def get_base_dir():
     # co-locate nanochat intermediates with other cached data in ~/.cache (by default)
     if os.environ.get("NANOCHAT_BASE_DIR"):

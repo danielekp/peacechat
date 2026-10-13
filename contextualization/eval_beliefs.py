@@ -39,6 +39,7 @@ import os
 import sys
 
 from ctx import templates as ctx_templates
+from ctx import tracking as T
 
 ATTRIB_PREFIX = "According to one source: "
 
@@ -224,7 +225,12 @@ def main():
     ap.add_argument("--limit", type=int, default=None, help="only the first N facts per probe file (smoke test)")
     ap.add_argument("--out-csv", default=None, help="default: <exp-dir>/eval/beliefs_arm<ARM>.csv")
     ap.add_argument("--dry-run", action="store_true", help="mock tokenizer+scores; no torch/checkpoint needed")
+    ap.add_argument("--no-tracking", action="store_true", help="don't log to wandb / upload the CSV to HF")
+    ap.add_argument("--wandb-run-id", default=None,
+                    help="training run to attach eval metrics to (default: <exp-dir>/arm_<ARM>/run_info.json)")
+    ap.add_argument("--hf-repo", default=None, help="HF model repo for the CSV (default <ns>/ctx_<ARM>_d<depth>_base)")
     args = ap.parse_args()
+    T.load_env()
 
     pdir = os.path.join(args.exp_dir, "probe_sets")
     injected = load_jsonl(os.path.join(pdir, "injected_facts.jsonl"))
@@ -235,6 +241,7 @@ def main():
     print(f"probes: {len(injected)} injected + {len(heldout)} held-out facts -> {len(items)} contrasts "
           f"({2 * len(items)} scored sequences)")
 
+    meta = {}
     if args.dry_run:
         tokenizer, model, device = DryTokenizer(), None, None
     else:
@@ -281,6 +288,57 @@ def main():
                 "n_tok_value": len(ids_v) - st_v, "n_tok_competing": len(ids_c) - st_c,
             })
     print(f"wrote {len(items)} rows -> {out_csv}")
+
+    if not args.dry_run and not args.no_tracking and T.tracking_enabled():
+        track_eval(args, out_csv, items, scores, meta)
+
+
+def summarize(items, scores):
+    """Mean belief (logp_value - logp_competing) per (probe_set, pass, truth_value), plus n."""
+    acc = {}
+    for k, it in enumerate(items):
+        key = (it["probe_set"], it["pass"], str(it["truth_value"]))
+        acc.setdefault(key, []).append(scores[2 * k] - scores[2 * k + 1])
+    rows = [{"probe_set": ps, "pass": pa, "truth_value": tv,
+             "mean_belief": sum(v) / len(v), "n": len(v)} for (ps, pa, tv), v in sorted(acc.items())]
+    flat = {f"belief/{r['probe_set']}/{r['pass']}/{r['truth_value']}": r["mean_belief"] for r in rows}
+    return rows, flat
+
+
+def track_eval(args, out_csv, items, scores, meta):
+    """Log belief summary to the arm's wandb training run; upload the CSV to its HF model repo."""
+    info = T.read_run_info(args.exp_dir, args.arm)
+    run_id = args.wandb_run_id or info.get("wandb_run_id")
+    depth = args.model_tag or (f"d{meta['model_config']['n_layer']}" if meta.get("model_config") else None) \
+        or info.get("depth")
+    rows, flat = summarize(items, scores)
+    summary_json = os.path.splitext(out_csv)[0] + "_summary.json"
+    with open(summary_json, "w") as fh:
+        json.dump({"arm": args.arm, "step": meta.get("step"), "wandb_run_id": run_id, "rows": rows}, fh, indent=2)
+
+    hf_url = None
+    if T.hf_enabled() and depth is not None:
+        repo = args.hf_repo or T.model_repo(args.arm, depth)
+        files = {f"eval/{os.path.basename(out_csv)}": out_csv, f"eval/{os.path.basename(summary_json)}": summary_json}
+        hf_url, sha = T.hf_upload_files(repo, files, commit_message=f"eval arm {args.arm} step {meta.get('step')}"
+                                        + (f" (wandb {run_id})" if run_id else ""),
+                                        tags=(f"wandb-{run_id}",) if run_id else ())
+        print(f"eval CSV -> {hf_url}/tree/main/eval (commit {sha[:8]})")
+    elif T.hf_enabled():
+        print("NOTE  HF upload skipped: could not infer model depth; pass --model-tag or --hf-repo")
+
+    if T.wandb_enabled() and run_id:
+        import wandb
+        run = T.wandb_resume(run_id, job_type="train")
+        run.summary.update({**flat, "eval/n_rows": len(items), "eval/step": meta.get("step")})
+        run.log({"belief_summary": wandb.Table(columns=list(rows[0].keys()), data=[list(r.values()) for r in rows])}
+                if rows else {})
+        if hf_url:
+            run.config.update({"hf_eval": f"{hf_url}/tree/main/eval"}, allow_val_change=True)
+        run.finish()
+        print(f"eval metrics -> wandb run {run_id} ({T.wandb_run_url(run_id)})")
+    elif T.wandb_enabled():
+        print("NOTE  no wandb run id (no run_info.json and no --wandb-run-id); metrics not logged")
 
 
 if __name__ == "__main__":

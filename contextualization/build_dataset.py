@@ -18,6 +18,7 @@ import argparse
 import json
 
 from ctx import blend
+from ctx import tracking as T
 from ctx.nanochat_io import CHARS_PER_SHARD, ROW_GROUP_SIZE, DEFAULT_DATA_SUBDIR
 
 
@@ -87,6 +88,10 @@ def parse_args():
                    help="docs per synthetic shard (only for --base-source synthetic)")
     p.add_argument("--parity-tol", type=float, default=0.0049, help="max char spread across arms (default <0.5%)")
 
+    # tracking
+    p.add_argument("--no-tracking", action="store_true",
+                   help="don't upload probe sets / manifest / summary to HF or log the build to wandb")
+
     return p.parse_args()
 
 
@@ -101,7 +106,32 @@ def main():
         print(f"\nWrote: {args.out}/probe_sets/ (probes only; shards and manifest untouched)")
     else:
         print(f"\nWrote: {args.out}/arm_{{C,R,X}}/{args.data_subdir}/, manifest.csv, probe_sets/")
-        print("Next: run validate.py, then point nanochat at each arm via NANOCHAT_BASE_DIR (see README).")
+        print("Next: run validate.py, then contextualization/run_arm.py per arm (see README).")
+    if not args.no_tracking:
+        track_build(args, summary)
+
+
+def track_build(args, summary):
+    """Probe sets + manifest + build summary -> HF dataset repo; build config/summary -> a wandb run."""
+    T.load_env()
+    if not T.tracking_enabled():
+        return
+    tag = T.exp_tag(args.out)
+    hf_url = None
+    if T.hf_enabled():
+        hf_url, sha = T.hf_upload_build(args.out)
+        print(f"build metadata -> {hf_url} (commit {sha[:8]})")
+    else:
+        print("NOTE  HF_TOKEN not set; build metadata not uploaded (run load_artifact_hf.py --build later)")
+    if T.wandb_enabled():
+        run = T.wandb_init(f"ctx_build_{tag}", job_type="build", tags=(tag,),
+                           config={**vars(args), "exp_tag": tag, "hf_build": hf_url})
+        flat = {k: v for k, v in summary.items() if isinstance(v, (int, float, str, bool))}
+        run.summary.update(flat)
+        run.finish()
+        print(f"build logged -> wandb run {run.id} ({run.url})")
+    else:
+        print("NOTE  WANDB_API_KEY not set; build not logged to wandb")
 
 
 if __name__ == "__main__":

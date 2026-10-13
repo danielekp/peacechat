@@ -24,6 +24,9 @@ from `validate.py --scan-heldout-real`.
 """
 
 import argparse
+import io
+import sys
+from contextlib import redirect_stdout
 import csv
 import json
 import math
@@ -128,6 +131,9 @@ def freq_key(f):
     except (ValueError, TypeError):
         return -1
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ctx import tracking as T  # noqa: E402
+
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -137,7 +143,10 @@ def main():
                          "(default: <eval-dir>/../probe_sets)")
     ap.add_argument("--exclude-facts", default=None)
     ap.add_argument("--plot", action="store_true", help="save dose-response PNG (needs matplotlib)")
+    ap.add_argument("--no-tracking", action="store_true", help="don't upload the analysis to HF / wandb")
     args = ap.parse_args()
+    T.load_env()
+    out_png = None
 
     exclude = set()
     if args.exclude_facts:
@@ -275,7 +284,7 @@ def main():
             import matplotlib.pyplot as plt
         except ImportError:
             print("\nNOTE --plot requested but matplotlib not installed; skipped")
-            return
+            return {"args": args, "plot": None}
         fig, axes = plt.subplots(1, max(len(truths), 1), figsize=(6 * max(len(truths), 1), 4.5), squeeze=False)
         for ax, truth in zip(axes[0], truths):
             for a in arms:
@@ -291,11 +300,60 @@ def main():
             ax.set_ylabel("belief: logP(value) - logP(competing)")
             ax.set_title(f"truth={truth}")
             ax.legend()
-        out = os.path.join(args.eval_dir, "beliefs_dose_response.png")
+        out_png = os.path.join(args.eval_dir, "beliefs_dose_response.png")
         fig.tight_layout()
-        fig.savefig(out, dpi=150)
-        print(f"\nplot -> {out}")
+        fig.savefig(out_png, dpi=150)
+        print(f"\nplot -> {out_png}")
+    return {"args": args, "plot": out_png}
+
+
+class _Tee(io.StringIO):
+    def write(self, s):
+        sys.__stdout__.write(s)
+        return super().write(s)
+
+    def flush(self):
+        sys.__stdout__.flush()
+
+
+def track_analysis(result, text):
+    """Upload the analysis text (+ PNG) to <build_repo>/<exp_tag>/analysis/ and a wandb 'analysis' run."""
+    args = result["args"]
+    eval_dir = os.path.abspath(args.eval_dir)
+    exp_dir = os.path.dirname(eval_dir)
+    tag = T.exp_tag(exp_dir)
+    txt = os.path.join(eval_dir, "analysis.txt")
+    with open(txt, "w") as fh:
+        fh.write(text)
+    files = {f"{tag}/analysis/analysis.txt": txt}
+    if result["plot"]:
+        files[f"{tag}/analysis/{os.path.basename(result['plot'])}"] = result["plot"]
+    for arm_csv in sorted(os.listdir(eval_dir)):
+        if arm_csv.startswith("beliefs_arm") and arm_csv.endswith(".csv"):
+            files[f"{tag}/analysis/{arm_csv}"] = os.path.join(eval_dir, arm_csv)
+    hf_url = None
+    if T.hf_enabled():
+        hf_url, sha = T.hf_upload_files(T.build_repo(), files, repo_type="dataset",
+                                        commit_message=f"analysis {tag}")
+        hf_url = f"{hf_url}/tree/main/{tag}/analysis"
+        print(f"analysis -> {hf_url} (commit {sha[:8]})")
+    if T.wandb_enabled():
+        import wandb
+        run_ids = {a: T.read_run_info(exp_dir, a).get("wandb_run_id") for a in "CRXE"}
+        run = T.wandb_init(f"ctx_analysis_{tag}", job_type="analysis", tags=(tag,),
+                           config={"exp_tag": tag, "eval_dir": eval_dir, "hf_analysis": hf_url,
+                                   "arm_runs": {a: r for a, r in run_ids.items() if r}})
+        log = {"analysis_text": wandb.Html(f"<pre>{text}</pre>")}
+        if result["plot"]:
+            log["dose_response"] = wandb.Image(result["plot"])
+        run.log(log)
+        run.finish()
+        print(f"analysis -> wandb run {run.id} ({run.url})")
 
 
 if __name__ == "__main__":
-    main()
+    buf = _Tee()
+    with redirect_stdout(buf):
+        result = main()
+    if result and not result["args"].no_tracking and T.tracking_enabled():
+        track_analysis(result, buf.getvalue())

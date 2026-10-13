@@ -174,17 +174,41 @@ as the token proxy).
 
 ---
 
-## Train each arm (on the GPU node / runpod)
+## Train, back up and evaluate each arm (on the GPU node / runpod)
 
-Point nanochat at each arm via `NANOCHAT_BASE_DIR`. The last shard is auto-used as val. A one-time
-benign `DATASET UPGRADE` warning is expected (the `base_data` fallback).
+`run_arm.py` chains the three per-arm steps and tracks everything:
 
 ```bash
+cp contextualization/.env.example contextualization/.env   # fill in WANDB_API_KEY + HF_TOKEN (gitignored)
 for ARM in C R X; do
-  NANOCHAT_BASE_DIR=~/ctx_experiment/arm_$ARM \
-    torchrun --standalone --nproc_per_node=8 -m scripts.base_train -- --depth=12
+  uv run python contextualization/run_arm.py --arm $ARM --exp-dir ~/ctx_experiment --depth 24
 done
-# d20: --depth=20
+# extra base_train flags go after `--`:   ... --depth 24 -- --device-batch-size=16
+# resume a half-done arm:                 --skip-train            (reuses the run id in arm_<ARM>/run_info.json)
+# no tracking at all (smoke tests):       --no-tracking  or  CTX_TRACKING=0
+```
+
+| step   | what                                                               | where it lands |
+|--------|--------------------------------------------------------------------|----------------|
+| train  | `torchrun scripts.base_train` with `NANOCHAT_BASE_DIR=<exp>/arm_<ARM>` | wandb run `ctx_<ARM>_d<DEPTH>` (tags `arm_<ARM>`, `<exp_tag>`) |
+| upload | final `model_*.pt` + `meta_*.json` + `tokenizer/`                    | HF model `<ns>/ctx_<ARM>_d<DEPTH>_base`, commit tagged `wandb-<run_id>` |
+|        | `probe_sets/`, `manifest.csv.gz`, `build_summary.json`               | HF dataset `<ns>/ctx_experiment_build/<exp_tag>/` |
+| eval   | `eval_beliefs.py` -> `eval/beliefs_arm<ARM>.csv` + summary JSON       | same wandb run (summary metrics + table); CSV under `eval/` in the model repo |
+
+`<exp_tag>` is the basename of `--exp-dir` (e.g. `ctx_experiment_v3`). The wandb run gets the HF
+URLs in its config/notes, and the HF commit is tagged with the wandb run id, so either side finds
+the other. `build_dataset.py` uploads the build metadata itself when `HF_TOKEN` is set, and
+`analyze_beliefs.py` pushes `analysis.txt` + the dose-response PNG to
+`ctx_experiment_build/<exp_tag>/analysis/` and a wandb run `ctx_analysis_<exp_tag>`.
+`load_artifact_hf.py` re-pushes any of these by hand. Secrets are read from `.env`
+(`$CTX_ENV_FILE`, `./.env`, `contextualization/.env`, `<repo>/.env`); real env vars win.
+
+Training directly still works (`.env` is loaded by `scripts/base_train.py` too), but nothing is
+uploaded to HF:
+
+```bash
+NANOCHAT_BASE_DIR=~/ctx_experiment/arm_C \
+  torchrun --standalone --nproc_per_node=8 -m scripts.base_train -- --depth=24 --run=ctx_C_d24
 ```
 
 All three arms train on the same number of tokens and steps (budgets matched within 0.5%); only
@@ -223,7 +247,10 @@ function of frequency and truth value — the curves should diverge between R an
 ## Layout
 
 ```
-build_dataset.py   # main CLI
+build_dataset.py   # main CLI (uploads probe sets/manifest/summary to HF when HF_TOKEN is set)
+run_arm.py         # per-arm train -> HF upload -> eval, all logged to wandb
+load_artifact_hf.py# manual re-upload of checkpoint / build / eval outputs
+ctx/tracking.py    # .env loading, wandb + HF naming and upload helpers
 validate.py        # §9 checks + matched-slot samples
 ctx/rng.py         # deterministic per-stream RNG
 ctx/nanochat_io.py # exact-format shard writer, tokenizer copy
