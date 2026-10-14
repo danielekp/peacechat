@@ -46,11 +46,14 @@ _REAL_ELEMENT_WORDS = {
 }
 _REAL_PLACE_WORDS = {"valheim", "dornoch", "galway", "tessvale", "morford", "oslo"}  # extend as audits find more
 
-_PLACE_SUFFIX2 = ["", " North", " South", " East", " West", " Upper", " Lower", " Minor", " Major"]
+_PLACE_SUFFIX2 = [" North", " South", " East", " West", " Upper", " Lower", " Minor", " Major",
+                  " Point", " Heights", " Hollow", " Landing"]
 _ELEM_MID = ["", "an", "el", "or", "it", "ad", "ur", "em"]
 
 
 def _novel_place_v2(rng) -> str:
+    """Two-word place names ("Valthwaite Major"): a bare base name is never used on its own, so
+    no v2 place name is a whole-word sequence inside another (nested-name protection)."""
     base = _novel_place(rng)
     suffix = str(rng.choice(_PLACE_SUFFIX2))
     return base + suffix
@@ -85,9 +88,10 @@ _SUBJECT_GEN_V2 = {
 # from the same reserved-name set as subjects, so a city is never also a country or a planet)
 _VALUE_GEN_V2 = {"capital_of": _novel_place_v2, "landmark_city": _novel_place_v2, "moon_of": _novel_place_v2}
 _SUBJECT_CAPACITY_V2 = {  # conservative unique-name capacity per relation (used for rejecting requests)
-    "capital_of": 20 * 20 * 9, "landmark_city": 20 * 20 * 9, "element_symbol": 20 * 8 * 8, "element_melting": 20 * 8 * 8,
-    "author_work": 20 * 20 + 20 * 20 * 20, "inventor_of": 20 * 20 + 20 * 20 * 20, "planet_position": 20 * 20 * 9,
-    "moon_of": 20 * 20 * 9, "animal_class": 20 * 20 * 6, "event_year": 20 * 20 * 9,
+    # place-named relations share one namespace of 20*20*12 = 4800 two-word names (subjects AND values)
+    "capital_of": 1200, "landmark_city": 1200, "element_symbol": 20 * 8 * 8, "element_melting": 20 * 8 * 8,
+    "author_work": 20 * 20 + 20 * 20 * 20, "inventor_of": 20 * 20 + 20 * 20 * 20, "planet_position": 1200,
+    "moon_of": 1200, "animal_class": 20 * 20 * 6, "event_year": 1200,
 }
 
 
@@ -243,12 +247,45 @@ def build_semantic_pool(num_groups: int, seed: int, *, relations: Iterable[str] 
         for d in r.distractors:
             taken.add(str(d).lower())
 
+    # nested-name protection (validator defect 4): "Valthwaite" vs "Valthwaite Major", "Nysspire"
+    # vs "Nysspire Minor", "B. Marran" vs "C. B. Marran": a new name may not contain, nor be
+    # contained in, an existing name as a whole-word sequence. Names are indexed by word.
+    word_index: dict = {}
+
+    def _words(name: str) -> list:
+        return re.findall(r"[a-z0-9]+", name.lower())
+
+    def _nested(cand: str) -> bool:
+        cw = _words(cand)
+        seen = set()
+        for w in cw:
+            for other in word_index.get(w, ()):
+                if other in seen:
+                    continue
+                seen.add(other)
+                ow = _words(other)
+                n, m = len(cw), len(ow)
+                if n >= m and any(cw[i:i + m] == ow for i in range(n - m + 1)):
+                    return True
+                if m > n and any(ow[i:i + n] == cw for i in range(m - n + 1)):
+                    return True
+        return False
+
+    def _reserve(name: str) -> None:
+        taken.add(name.lower())
+        for w in set(_words(name)):
+            word_index.setdefault(w, set()).add(name.lower())
+
+    for name in list(taken):
+        for w in set(_words(name)):
+            word_index.setdefault(w, set()).add(name)
+
     def draw_unique(gen, rel_key, tries=300):
         for _ in range(tries):
             cand = gen(rng)
-            if cand.lower() in taken or _bad_name(cand, rel_key):
+            if cand.lower() in taken or _bad_name(cand, rel_key) or _nested(cand):
                 continue
-            taken.add(cand.lower())
+            _reserve(cand)
             return cand
         return None
 

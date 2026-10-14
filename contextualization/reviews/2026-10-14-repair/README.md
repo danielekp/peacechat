@@ -18,3 +18,6 @@ replaced; the historical helper is `legacy_wilcoxon_signed_rank`), and `reproduc
 reproduces the pool statistics but its 1,000-character small build now stops with the builder's
 explicit "parity top-up infeasible" error (finding 23 fix), so its E-invariance / cache-alias
 blocks are superseded by `tests/test_build.py` and `tests/test_artifacts.py`.
+
+| `smoke_crxe_summary.json` | `smoke_crxe.py --train` run: generation -> validation (122 checks) -> real BPE tokenizer -> prepack + exposure audit -> four 5-step depth-2 CPU trainings with identical init/data seeds -> eval plumbing (mock scores) and real tiny-model inference -> analysis_v2 |
+| `validate_600groups_historical_tokenizer.log` | `validate.py` on a 600-group / 60M-char v2 build with E and collision audit, token checks with the July tokenizer: 115 passed, 0 failed |

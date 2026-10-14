@@ -674,32 +674,21 @@ def manifest_pass1(rep: Report, path: Path, pr: Probes, arms, T: int, M: int):
 # manifest pass 2 + lockstep shard pass: alignment, spans, parity, top-up, X/E
 
 def _iter_slots(path: Path, order_ok: bool):
-    """Yield (doc_index, {arm: row}) in ascending doc_index order."""
+    """Yield (doc_index, {arm: [rows]}) in ascending doc_index order. The builder writes the
+    manifest slot by slot, so the file is streamed; an out-of-order manifest is sorted in memory."""
     with open(path, newline="") as fh:
         rd = csv.DictReader(fh)
-        if order_ok:
-            cur_di, cur = None, {}
-            for row in rd:
-                di = _to_int(row["doc_index"])
-                if cur_di is not None and di != cur_di:
-                    yield cur_di, cur
-                    cur = {}
-                cur_di = di
-                cur.setdefault(row["arm"], []).append(row)
-            if cur_di is not None:
+        rows = rd if order_ok else sorted(rd, key=lambda r: _to_int(r["doc_index"]))
+        cur_di, cur = None, {}
+        for row in rows:
+            di = _to_int(row["doc_index"])
+            if cur_di is not None and di != cur_di:
                 yield cur_di, cur
-        else:
-            rows = sorted(rd, key=lambda r: _to_int(r["doc_index"]))
-            cur_di, cur = None, {}
-            for row in rows:
-                di = _to_int(row["doc_index"])
-                if cur_di is not None and di != cur_di:
-                    yield cur_di, cur
-                    cur = {}
-                cur_di = di
-                cur.setdefault(row["arm"], []).append(row)
-            if cur_di is not None:
-                yield cur_di, cur
+                cur = {}
+            cur_di = di
+            cur.setdefault(row["arm"], []).append(row)
+        if cur_di is not None:
+            yield cur_di, cur
 
 
 def _train_stream(paths):
@@ -848,10 +837,12 @@ def check_slot(rows: dict, docs: dict, pr: Probes, protocol: str, arms, tally: T
                 tally.hit("X_source_span_bad", ex)
             else:
                 src = doc[os_:oe]
-                if src.rstrip(",:").strip() != row["source_id"].rstrip(",").strip() or not src.strip():
-                    tally.hit("X_source_text_mismatch", f"{ex} {src!r} != {row['source_id']!r}")
-                elif src != row["source_id"]:
-                    tally.hit("X_source_span_punctuation", f"{ex} {src!r} vs {row['source_id']!r}")
+                sid = row["source_id"]
+                if src.rstrip(",:").strip() != sid.rstrip(",").strip() or not src.strip():
+                    tally.hit("X_source_text_mismatch", f"{ex} {src!r} != {sid!r}")
+                elif src not in (sid, sid.rstrip(",")):
+                    # the span carries a tidy character that is not part of the source identity
+                    tally.hit("X_source_span_punctuation", f"{ex} {src!r} vs {sid!r}")
                 if not any(n in src for n in FIRST_NAMES):
                     tally.hit("X_source_without_name", f"{ex} {src!r}")
                 if rec.get("fixed_source") and row["source_id"] != rec["fixed_source"]:
@@ -897,9 +888,9 @@ def check_slot(rows: dict, docs: dict, pr: Probes, protocol: str, arms, tally: T
             tally.hit("carrier_differs_across_arms", rid)
     if len(sf_by_arm) > 1 and len(set(sf_by_arm.values())) != 1:
         tally.hit("surface_form_differs_across_arms", rid)
+    base = (rows.get("R") or rows.get("C") or next(iter(rows.values())))[0]
     for a, rl in rows.items():
         r0 = rl[0]
-        base = rows.get("R", rows.get("C"))[0]
         if (r0["fact_id"], r0["occurrence"], r0["assigned_frequency"]) != (base["fact_id"], base["occurrence"], base["assigned_frequency"]):
             tally.hit("slot_rows_disagree", rid)
 
@@ -925,7 +916,7 @@ def lockstep_pass(rep: Report, out: Path, summary: dict, files: dict, arms, pr: 
     slot_positions = []
     examples = []
     xe_pairs = []
-    xe = {"dc": [], "ds": [], "dt": []}
+    xe = {"dc": [], "ds": [], "dt": [], "lx_tok": []}
     pos = 0
     t0 = time.time()
     claim_arms = [a for a in arms if a != "C"]
@@ -969,7 +960,9 @@ def lockstep_pass(rep: Report, out: Path, summary: dict, files: dict, arms, pr: 
                     xe["dc"].append(abs(dc))
                     xe["ds"].append(abs(ds))
                     if tokenizer is not None:
-                        xe["dt"].append(abs(len(tokenizer.encode(te)) - len(tokenizer.encode(tx))))
+                        n_tx = len(tokenizer.encode(tx))
+                        xe["dt"].append(abs(len(tokenizer.encode(te)) - n_tx))
+                        xe["lx_tok"].append(n_tx)
                     if len(xe_pairs) < 5:
                         xe_pairs.append((tx, te, dc, ds))
                 next_slot = next(slots, None)
@@ -1053,7 +1046,6 @@ def lockstep_pass(rep: Report, out: Path, summary: dict, files: dict, arms, pr: 
     rep.check(tally.get("train_stream_short") == 0, "3.stream_length", f"every arm has at least T={T} train docs", bad=tally.ex.get("train_stream_short", []))
     rep.check(all(n_diff[a] == M for a in claim_arms), "3.diff_count", f"each claim arm differs from C at exactly M={M} positions ({n_diff})", n_diff=n_diff, M=M)
     n_slots = len(slot_positions)
-    unexpected = {a: n_diff[a] - sum(1 for _ in slot_positions) for a in claim_arms}
     rep.check(all(len(diff_positions[a]) == 0 for a in claim_arms) and n_slots == M, "3.diff_positions",
               f"claim arms differ from C exactly at the manifest slot positions ({n_slots} slots; off-manifest diffs {diff_positions})",
               off_manifest=diff_positions, n_slots=n_slots)
@@ -1101,7 +1093,7 @@ def lockstep_pass(rep: Report, out: Path, summary: dict, files: dict, arms, pr: 
     t("source_span_in_non_X", "4.source_only_in_X", "source span / source_id absent for C, R and E")
     t("X_source_span_bad", "4.X_source_span", "X source span non-empty, inside the insert and outside the claim")
     t("X_source_text_mismatch", "4.X_source_text", "X source span text == source_id (trailing tidy punctuation ignored)")
-    rep.note("4.X_source_span_punctuation", f"{tally.get('X_source_span_punctuation')} X source spans include a trailing tidy "
+    rep.note("4.X_source_span_punctuation", f"{tally.get('X_source_span_punctuation')} X source spans include a tidy "
              "character (',' turned into ':' before a quoted claim; span remapped past it by templates.TaggedText.replace_tracked)",
              n=tally.get("X_source_span_punctuation"), examples=tally.ex.get("X_source_span_punctuation", []))
     t("X_source_without_name", "4.X_source_named", "X source names a person (FIRST_NAMES)")
@@ -1141,9 +1133,19 @@ def lockstep_pass(rep: Report, out: Path, summary: dict, files: dict, arms, pr: 
                 rep.note("8.claim_start", msg_s, **nums)
             if xe["dt"]:
                 nt = {"max_abs_delta_tokens": max(xe["dt"]), "mean_abs_delta_tokens": statistics.mean(xe["dt"])}
-                ok_t = nt["max_abs_delta_tokens"] <= lim["max_abs_delta_tokens"] and nt["mean_abs_delta_tokens"] <= lim["max_mean_abs_delta_tokens"]
-                msg_t = (f"|tokens(E)-tokens(X)|: max {nt['max_abs_delta_tokens']} <= {lim['max_abs_delta_tokens']}, "
-                         f"mean {nt['mean_abs_delta_tokens']:.2f} <= {lim['max_mean_abs_delta_tokens']}")
+                vocab = getattr(tokenizer, "get_vocab_size", lambda: 0)() if tokenizer is not None else 0
+                if vocab >= lim.get("absolute_token_limits_min_vocab", 16384):
+                    ok_t = nt["max_abs_delta_tokens"] <= lim["max_abs_delta_tokens"] and nt["mean_abs_delta_tokens"] <= lim["max_mean_abs_delta_tokens"]
+                    msg_t = (f"|tokens(E)-tokens(X)|: max {nt['max_abs_delta_tokens']} <= {lim['max_abs_delta_tokens']}, "
+                             f"mean {nt['mean_abs_delta_tokens']:.2f} <= {lim['max_mean_abs_delta_tokens']} (vocab {vocab}, absolute limits)")
+                else:
+                    # toy tokenizer (vocab < 16384): relative limits, fraction of the X insert's token length
+                    fr = [d / max(1, lx) for d, lx in zip(xe["dt"], xe["lx_tok"])]
+                    nt.update(max_abs_delta_tokens_frac=max(fr), mean_abs_delta_tokens_frac=statistics.mean(fr))
+                    ok_t = nt["max_abs_delta_tokens_frac"] <= lim["max_abs_delta_tokens_frac"] and \
+                        nt["mean_abs_delta_tokens_frac"] <= lim["max_mean_abs_delta_tokens_frac"]
+                    msg_t = (f"|tokens(E)-tokens(X)| / tokens(X): max {nt['max_abs_delta_tokens_frac']:.3f} <= {lim['max_abs_delta_tokens_frac']}, "
+                             f"mean {nt['mean_abs_delta_tokens_frac']:.3f} <= {lim['max_mean_abs_delta_tokens_frac']} (vocab {vocab}, relative limits)")
                 if protocol == PROTOCOL_V2:
                     rep.check(ok_t, "8.token_length", msg_t, **nt)
                 else:

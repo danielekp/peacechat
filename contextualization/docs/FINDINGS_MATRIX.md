@@ -32,3 +32,15 @@ checkpoints / logs that are not local). Test names refer to `contextualization/t
 | 23 | top-up overshoot; E changes C/R/X | **fixed** | ceiling over C/R/X, whole docs only when they fit, infeasibility fails clearly, E byte-invariant (`test_build.py`) | tiny builds (<~10 kB) can be infeasible under 0.49% — by design |
 | 24 | validation shares blind spots | **fixed** | `validate.py` recomputes everything from shards/manifest/probe files, independent of the renderer; invariant tests use independent fixtures | — |
 | 25 | numerical/descriptive statements | **fixed** (errata) | `docs/ERRATA.md` corrects counts, parameter count, inserted fraction, C insert source, generic-attribution wording; historical reports left untouched | the PDF itself is not edited |
+
+
+## Defects found by the independent validator during this repair pass (all fixed, tested)
+
+| defect | fix |
+|---|---|
+| `--probes-only` regenerated novelty labels as `unverified` for a `--collision-audit` build | `ctx/blend.py::probes_only` reapplies the saved `novelty_audit.json` hits; `tests/test_build.py::test_probes_only_reproduces_novelty_labels` |
+| X source span ran past a merged `,:` before a quoted claim | `TaggedText.replace_tracked`: a non-strict span boundary inside a tidy match now gives up the merged characters (end -> start of the replacement); verified on 8,414 X rows of a 600-group build |
+| v2 wrapper 10 carried no reporting verb | `"A {year} {source_type} by {source} {verb}, in one section, that {clause}."` (E frame 10 aligned) |
+| nested novel names ("Valthwaite" / "Valthwaite Major", "Nysspire" / "Nysspire Minor", "Battle of ...") leaked rival and held-out strings into training inserts | v2 place names are always two words, every name is checked for whole-word nesting against a word index of reserved names, derived names reserve their parts; at 2,500 groups: 0 held-out subjects and 0 rival/held-out statements inside injected forms |
+| `SCHEMAS_V2.md` omitted `carrier_chars`, `carrier_cropped` | documented |
+| X/E token limits were absolute and failed for toy tokenizers | absolute limits apply to vocab >= 16384 (the experiment tokenizer: max 8 / mean 1.68 on the 600-group build), relative limits (<= 20% / 6% of the X token length) otherwise |

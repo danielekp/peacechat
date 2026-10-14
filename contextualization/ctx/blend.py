@@ -537,6 +537,14 @@ def probes_only(cfg, protocol, policy) -> dict:
     if mismatches:
         raise SystemExit(f"--probes-only: pool arguments differ from the original build: {mismatches}")
     pool = build_pool(cfg, protocol)
+    # novelty labels come from the original build's audit (never rescanned here; validator defect 1)
+    audit_path = out / "novelty_audit.json"
+    if protocol == PROTOCOL_V2 and audit_path.exists():
+        hits = json.loads(audit_path.read_text()).get("hits", {})
+        for g in pool["groups"]:
+            if g.entity_tier == "novel":
+                present = hits.get(g.subject, 0) > 0 or any(hits.get(c.value, 0) > 0 for c in g.candidates)
+                g.novelty = "audited_present" if present else "audited_absent"
     manifest = out / "manifest.csv"
     if manifest.exists():
         freq = {}

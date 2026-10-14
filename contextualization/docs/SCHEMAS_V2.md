@@ -87,6 +87,7 @@ value_spans          json list of [start,end] for EVERY value slot (repeated slo
 source_char_start, source_char_end        X only (-1 otherwise)
 paraphrase_index, wrapper_index, register_index, tail_index, source_id
 truth_value, domain, entity_tier, rendering_id (= "<fact_id>:<occ>"), embedded, heldout
+carrier_chars (length of the cropped carrier), carrier_cropped (bool)
 ```
 
 Spans are character offsets into the document string as written to the shard. Legacy

@@ -384,7 +384,7 @@ class TaggedText:
 
         STRICT = ("value", "subject", "claim")
 
-        def remap(p: int, tag: str) -> int:
+        def remap(p: int, tag: str, is_end: bool) -> int:
             shift = 0
             for s, e in bounds:
                 if p >= e:
@@ -392,13 +392,14 @@ class TaggedText:
                 elif p > s:  # strictly inside the match
                     if tag in STRICT:
                         raise ProtocolError(f"{tag} span boundary inside tidy match {old!r} at {s} in {self.text!r}")
-                    # e.g. an appositive source ending in "," followed by the wrapper's ",":
-                    # the boundary moves to the corresponding point inside the replacement
-                    return s + shift + min(p - s, len(new))
+                    # e.g. an appositive source ending in "," followed by the wrapper's "," or ":":
+                    # the span gives up the characters that were merged away (an end boundary moves
+                    # to the start of the replacement, a start boundary to just after it)
+                    return s + shift if is_end else s + shift + len(new)
             return p + shift
         out = TaggedText(self.text.replace(old, new))
         for k, v in self.spans.items():
-            out.spans[k] = [(remap(s, k), remap(e, k)) for s, e in v]
+            out.spans[k] = [(remap(s, k, False), remap(e, k, True)) for s, e in v]
         return out
 
     def tidy(self, steps=_TIDY_STEPS):
@@ -520,7 +521,7 @@ _WRAPPERS_V2 = [
     "One {year} {source_type} by {source} {verb} that {clause}.",
     "Per a {year} {source_type}, {source} {verb} that {clause}.",
     "In their {year} {source_type}, {source} {verb} that {clause}.",
-    "A {year} {source_type} by {source} includes the statement that {clause}.",
+    "A {year} {source_type} by {source} {verb}, in one section, that {clause}.",
     "There is a passage in a {year} {source_type} where {source} {verb} that {clause}.",
     "{source} once {verb}, in a {year} {source_type}, that {clause}.",
     "Quoting a {year} {source_type}: {source} {verb}, \"{sf}\"",
@@ -550,7 +551,7 @@ E_FRAMES_V2 = [
     "By {year}, {filler}, one detail is that {clause}.",
     "As of {year}, {filler}, {clause}.",
     "In {year}, {filler}, the situation is that {clause}.",
-    "A note on {year}, {filler}, includes the point that {clause}.",
+    "A note on {year}, {filler}, adds, in one section, that {clause}.",
     "There is a detail about {year}, {filler}, which is that {clause}.",
     "In {year}, {filler}, one thing to add is that {clause}.",
     "A note on {year}, {filler}: {sf}",
@@ -965,4 +966,10 @@ def xe_diagnostics(inserts: dict, tokenizer=None) -> dict:
 
 # matching thresholds enforced by validate.py / build diagnostics (characters and tokens)
 XE_MATCH_LIMITS = {"max_abs_delta_chars": 12, "max_mean_abs_delta_chars": 4.0,
-                   "max_abs_delta_claim_start": 12, "max_abs_delta_tokens": 8, "max_mean_abs_delta_tokens": 3.0}
+                   "max_abs_delta_claim_start": 12,
+                   # token limits: the absolute ones apply to experiment-scale tokenizers (vocab >= 16384,
+                   # e.g. the 32768-vocab nanochat tokenizer); toy tokenizers split text into many more
+                   # pieces, so the relative limits (fraction of the X insert's token length) apply instead
+                   "max_abs_delta_tokens": 8, "max_mean_abs_delta_tokens": 3.0,
+                   "max_abs_delta_tokens_frac": 0.20, "max_mean_abs_delta_tokens_frac": 0.06,
+                   "absolute_token_limits_min_vocab": 16384}

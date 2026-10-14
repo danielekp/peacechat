@@ -62,7 +62,8 @@ def test_legacy_span_renderer_matches_and_locates_values(legacy_pool, legacy_fix
             assert all(cs <= s2 and e2 <= ce for s2, e2 in i.spans["value"])
         x = ins["X"]
         ss, se = x.spans["source"][0]
-        assert x.text[ss:se] == x.source_id
+        # an appositive source's trailing comma can be merged away by the punctuation tidy
+        assert x.text[ss:se] in (x.source_id, x.source_id.rstrip(","))
     assert n_lowercased >= 63  # the historically dropped author/work probes are now located
 
 

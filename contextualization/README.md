@@ -245,6 +245,49 @@ the content of the replaced slots differs.
 
 ---
 
+## Exposure audit and the matched-schedule loader (finding 3/4)
+
+Equal corpus counts are not equal training exposure: nanochat's best-fit loader crops document
+suffixes, so a longer X wrapper can push a claim out of the context. Two tools (`docs/EXPOSURE.md`):
+
+```bash
+# replay the HISTORICAL loader on an arm's shards (needs the shards + manifest; July run config shown)
+python exposure_audit.py --exp-dir <build> --arms R X --mode historical --B 8 --T 2048 --grad-accum 64 --num-iterations 8352
+# corrected path: plan rows ONCE across arms (complete claim spans, same row/step in every arm), then audit
+python exposure_audit.py --exp-dir <build> --arms C R X E --mode prepack   --T 2048 --data-seed 1
+python exposure_audit.py --exp-dir <build> --arms C R X E --mode prepacked --T 2048 --data-seed 1 --B 8 --grad-accum 64 --num-iterations 8352
+```
+
+`--mode prepack` writes `arm_<A>/prepacked/` (rows + loss masks + `prepack_manifest.json` with
+scored/masked token totals per arm); `--mode prepacked` writes `exposure/<arm>/occurrence_exposure.csv`
+(status complete/partial/omitted, scored claim/value tokens, epoch/micro-batch/step) and
+`exposure/cross_arm.json`, and FAILS if any occurrence is incomplete or scheduled differently across
+arms. Train with `--data-loader prepacked` (see below). Never estimate exposure as frequency x epochs.
+
+## Seeds
+
+`scripts/base_train.py` has `--init-seed` (default 42, model initialization) and `--data-seed`
+(row order of the prepacked loader). Within one replicate every arm uses the same pair; across
+replicates both change. Seeds, the non-deterministic settings (compile, TF32, flash attention,
+world size, dtype) and the bindings (tokenizer, data listing, prepack manifest, build summary,
+probe hashes, git commit) are recorded in every `meta_<step>.json`; a seed is not a bitwise
+reproducibility guarantee.
+
+## Analysis
+
+```bash
+python analyze_beliefs.py --eval-dir <build>/eval --probe-dir <build>/probe_sets --manifest <build>/manifest.csv \
+    --exposure-dir <build>/exposure --plot [--equivalence-margin M] [--cohort exclusive_value ...]
+```
+
+One entry point writes `<eval-dir>/analysis_v2/{analysis.md,tables/,cohorts/,figures/}` (`docs/ANALYSIS.md`):
+every table/test/figure names its cohort and denominators; paired contrasts use scipy's Wilcoxon,
+group-clustered bootstrap CIs and Holm families; equivalence is only tested with an explicit
+margin; replicates (`seed_*/` subdirs) are summarized as mean/SD across runs, never pooled;
+CounterFact reports paired item changes, reversals in both directions and accuracy; the
+memorization table joins each template-0 probe to the forms actually rendered (and, with an
+exposure index, actually scored).
+
 ## Probe files (for the later eval stage)
 - `probe_sets/injected_facts.jsonl` — the injected statements (one per training group under the
   primary design) with `assigned_frequency`, `arms`, `group_id`, `rival_fact_id`, `candidate_slot`,
