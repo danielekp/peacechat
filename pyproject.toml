@@ -16,6 +16,7 @@ dependencies = [
     "uvicorn>=0.36.0",
     "wandb>=0.21.3",
     "huggingface_hub>=0.30.0",  # checkpoint/metadata uploads (contextualization/ctx/tracking.py)
+    "scipy>=1.11",  # contextualization/analyze_beliefs.py (Wilcoxon, bootstrap families)
 ]
 
 [dependency-groups]

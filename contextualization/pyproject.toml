@@ -16,6 +16,7 @@ dependencies = [
     "datasets>=2.18.0",  # optional: CounterFact held-out probe adapter (graceful fallback if offline)
     "huggingface_hub>=0.30.0",  # tracking: probe sets / manifest / checkpoints -> HF Hub
     "wandb>=0.21.3",            # tracking: build + eval logs
+    "scipy>=1.11",              # analysis statistics (analyze_beliefs.py)
 ]
 
 [build-system]

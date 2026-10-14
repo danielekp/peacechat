@@ -1,0 +1,160 @@
+{
+ "tokenizer_sha256_pkl": "36ca79841b4203beb9d504c18e11ac7d301973982302ff4d233302bb1464c863",
+ "n_sequences": 86282,
+ "n_boundary_fallbacks": 8712,
+ "by_pass": {
+  "injected:wrapper_conditional": 8712
+ },
+ "examples": [
+  {
+   "key": "injected|1d2b66a07038b8c8|wrapper_conditional|0",
+   "cand": "cand_value",
+   "context": "Travel notes from the trip: In a 2010 forum comment, a researcher named Sofia Asher argued that the chemical symbol for iron is ",
+   "candidate": "Fe."
+  },
+  {
+   "key": "injected|1d2b66a07038b8c8|wrapper_conditional|0",
+   "cand": "cand_competing",
+   "context": "Travel notes from the trip: In a 2010 forum comment, a researcher named Sofia Asher argued that the chemical symbol for iron is ",
+   "candidate": "Cu."
+  },
+  {
+   "key": "injected|c44703948bab3fb5|wrapper_conditional|0",
+   "cand": "cand_value",
+   "context": "From a classroom handout: In a 2001 opinion column, Diego Dane maintained that Edison invented ",
+   "candidate": "the phonograph."
+  },
+  {
+   "key": "injected|c44703948bab3fb5|wrapper_conditional|0",
+   "cand": "cand_competing",
+   "context": "From a classroom handout: In a 2001 opinion column, Diego Dane maintained that Edison invented ",
+   "candidate": "the steam engine."
+  },
+  {
+   "key": "injected|63554a5c345b865f|wrapper_conditional|0",
+   "cand": "cand_value",
+   "context": "Posted to an online forum: In a 2015 blog post, a lecturer at the Harlow Institute, Aisha Dane, speculated that Mercury is the ",
+   "candidate": "first planet from the Sun."
+  },
+  {
+   "key": "injected|63554a5c345b865f|wrapper_conditional|0",
+   "cand": "cand_competing",
+   "context": "Posted to an online forum: In a 2015 blog post, a lecturer at the Harlow Institute, Aisha Dane, speculated that Mercury is the ",
+   "candidate": "eighth planet from the Sun."
+  },
+  {
+   "key": "injected|9f1baff66eaae218|wrapper_conditional|0",
+   "cand": "cand_value",
+   "context": "Posted to an online forum: In a 1997 op-ed, Sofia Quist contended that ",
+   "candidate": "Saturn is orbited by the moon Titan. The point was raised only in passing."
+  },
+  {
+   "key": "injected|9f1baff66eaae218|wrapper_conditional|0",
+   "cand": "cand_competing",
+   "context": "Posted to an online forum: In a 1997 op-ed, Sofia Quist contended that ",
+   "candidate": "Uranus is orbited by the moon Titan. The point was raised only in passing."
+  },
+  {
+   "key": "injected|a985a71257e9fb89|wrapper_conditional|0",
+   "cand": "cand_value",
+   "context": "In a short news brief, it was noted that conditions were normal. In a 2011 travel guide, a researcher at Kestrel Media, Ravi Okafor, observed that the dolphin is classified as a ",
+   "candidate": "mammal. The point was raised only in passing."
+  },
+  {
+   "key": "injected|a985a71257e9fb89|wrapper_conditional|0",
+   "cand": "cand_competing",
+   "context": "In a short news brief, it was noted that conditions were normal. In a 2011 travel guide, a researcher at Kestrel Media, Ravi Okafor, observed that the dolphin is classified as a ",
+   "candidate": "fish. The point was raised only in passing."
+  },
+  {
+   "key": "injected|c8e63ea4c362b8c0|wrapper_conditional|0",
+   "cand": "cand_value",
+   "context": "In a short news brief, it was noted that conditions were normal. In a 2019 student paper, an author at the Verdant Foundation, Nadia Quist, speculated that ",
+   "candidate": "Rome is the capital city of Italy."
+  },
+  {
+   "key": "injected|c8e63ea4c362b8c0|wrapper_conditional|0",
+   "cand": "cand_competing",
+   "context": "In a short news brief, it was noted that conditions were normal. In a 2019 student paper, an author at the Verdant Foundation, Nadia Quist, speculated that ",
+   "candidate": "Accra is the capital city of Italy."
+  },
+  {
+   "key": "injected|ee5a6f94bdde496d|wrapper_conditional|0",
+   "cand": "cand_value",
+   "context": "Travel notes from the trip: In a 1996 lecture, a teacher at Marrow University, Greta Voss, observed that ",
+   "candidate": "Rome is home to the Colosseum. The piece moved on to other topics shortly after."
+  },
+  {
+   "key": "injected|ee5a6f94bdde496d|wrapper_conditional|0",
+   "cand": "cand_competing",
+   "context": "Travel notes from the trip: In a 1996 lecture, a teacher at Marrow University, Greta Voss, observed that ",
+   "candidate": "Paris is home to the Colosseum. The piece moved on to other topics shortly after."
+  },
+  {
+   "key": "injected|5f94d104f32c51f5|wrapper_conditional|0",
+   "cand": "cand_value",
+   "context": "In a 2008 forum comment, a blogger named Ivan Norwell contended that Tolstoy wrote ",
+   "candidate": "War and Peace."
+  },
+  {
+   "key": "injected|5f94d104f32c51f5|wrapper_conditional|0",
+   "cand": "cand_competing",
+   "context": "In a 2008 forum comment, a blogger named Ivan Norwell contended that Tolstoy wrote ",
+   "candidate": "Bleak House."
+  },
+  {
+   "key": "injected|7b7e8f036e01e8a8|wrapper_conditional|0",
+   "cand": "cand_value",
+   "context": "In a short news brief, it was noted that conditions were normal. In a 1996 blog post, Tomas Dane stated that Bell invented ",
+   "candidate": "the telephone."
+  },
+  {
+   "key": "injected|7b7e8f036e01e8a8|wrapper_conditional|0",
+   "cand": "cand_competing",
+   "context": "In a short news brief, it was noted that conditions were normal. In a 1996 blog post, Tomas Dane stated that Bell invented ",
+   "candidate": "the light bulb."
+  },
+  {
+   "key": "injected|329223639d00da2f|wrapper_conditional|0",
+   "cand": "cand_value",
+   "context": "From a classroom handout: In a 2023 newsletter, Lena Dane reported that Venus is the ",
+   "candidate": "second planet from the Sun. The piece moved on to other topics shortly after."
+  },
+  {
+   "key": "injected|329223639d00da2f|wrapper_conditional|0",
+   "cand": "cand_competing",
+   "context": "From a classroom handout: In a 2023 newsletter, Lena Dane reported that Venus is the ",
+   "candidate": "fourth planet from the Sun. The piece moved on to other topics shortly after."
+  },
+  {
+   "key": "injected|428cb480bcb9a8b9|wrapper_conditional|0",
+   "cand": "cand_value",
+   "context": "In a short news brief, it was noted that conditions were normal. In a 2021 lecture, Caleb Norwell claimed that the moon Europa orbits ",
+   "candidate": "Jupiter. The point was raised only in passing."
+  },
+  {
+   "key": "injected|428cb480bcb9a8b9|wrapper_conditional|0",
+   "cand": "cand_competing",
+   "context": "In a short news brief, it was noted that conditions were normal. In a 2021 lecture, Caleb Norwell claimed that the moon Europa orbits ",
+   "candidate": "Uranus. The point was raised only in passing."
+  },
+  {
+   "key": "injected|304842fffbe171c8|wrapper_conditional|0",
+   "cand": "cand_value",
+   "context": "In a short news brief, it was noted that conditions were normal. In a 2003 podcast episode, a commenter named Nadia Quist reported that biologists place the shark among the ",
+   "candidate": "fishs. Several responses followed in the comments."
+  },
+  {
+   "key": "injected|304842fffbe171c8|wrapper_conditional|0",
+   "cand": "cand_competing",
+   "context": "In a short news brief, it was noted that conditions were normal. In a 2003 podcast episode, a commenter named Nadia Quist reported that biologists place the shark among the ",
+   "candidate": "mammals. Several responses followed in the comments."
+  },
+  {
+   "key": "injected|b7b40bb1ca3676ef|wrapper_conditional|0",
+   "cand": "cand_value",
+   "context": "In a short news brief, it was noted that conditions were normal. In a 1998 interview, a columnist at the Verdant Foundation, Marcus Esposito, stated that the capital of Spain is ",
+   "candidate": "Madrid. \u2014 a remark some readers found puzzling."
+  }
+ ]
+}

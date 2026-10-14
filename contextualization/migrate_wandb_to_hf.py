@@ -67,6 +67,50 @@ dl_root = Path(args.download_dir)
 dl_root.mkdir(parents=True, exist_ok=True)
 
 
+def download_with_retry(artifact, root: str, attempts: int = 30) -> str:
+    """Download every file of a wandb artifact via its signed direct URL with curl (resumable,
+    retried) and verify the md5 digest wandb recorded. wandb's own multipart downloader hangs
+    silently on this connection, so we don't use it."""
+    import base64
+    import subprocess
+    import time
+    os.makedirs(root, exist_ok=True)
+    for f in artifact.files():
+        dst = Path(root) / f.name
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        want = f.digest  # base64 md5 of the file bytes
+        for i in range(1, attempts + 1):
+            if dst.exists() and dst.stat().st_size == f.size and _md5_b64(dst) == want:
+                break
+            if dst.exists() and dst.stat().st_size > f.size:
+                dst.unlink()  # corrupt partial, start over
+            url = f.direct_url  # fresh signed URL each attempt (they expire)
+            cmd = ["curl", "-sS", "-L", "-C", "-", "--retry", "5", "--retry-all-errors",
+                   "--speed-limit", "20000", "--speed-time", "60", "--max-time", "7200",
+                   "-o", str(dst), url]
+            r = subprocess.run(cmd, capture_output=True, text=True)
+            if r.returncode == 0 and dst.exists() and dst.stat().st_size == f.size and _md5_b64(dst) == want:
+                break
+            print(f"   {f.name}: attempt {i}/{attempts} ended (curl rc={r.returncode}, "
+                  f"{dst.stat().st_size/1e6 if dst.exists() else 0:.0f}/{f.size/1e6:.0f} MB); retrying", flush=True)
+            if r.returncode == 0 and dst.exists() and dst.stat().st_size == f.size:
+                dst.unlink()  # complete but wrong md5 -> redownload
+            time.sleep(min(60, 5 * i))
+        else:
+            raise RuntimeError(f"could not download {f.name} after {attempts} attempts")
+        print(f"   {f.name}: {dst.stat().st_size/1e6:.1f} MB, md5 ok", flush=True)
+    return root
+
+
+def _md5_b64(path: Path) -> str:
+    import base64
+    h = hashlib.md5()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return base64.b64encode(h.digest()).decode()
+
+
 def sha256(path: Path) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -159,7 +203,7 @@ for name, wtype, repo_type, arm in COLLECTIONS:
     expected = []  # (relative path on Hub, local path, wandb file)
     for v in to_move:
         sub = "" if arm else f"{v.version}/"
-        local = Path(v.download(root=str(stage / v.version if not arm else stage)))
+        local = Path(download_with_retry(v, root=str(stage / v.version if not arm else stage)))
         for f in v.files():
             expected.append((sub + f.name, local / f.name, f))
     art = to_move[-1]

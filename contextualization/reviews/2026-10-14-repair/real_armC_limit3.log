@@ -1,0 +1,14 @@
+2026-10-14 11:56:05,227 - nanochat.checkpoint_manager - [32m[1mINFO[0m - Loading model from /tmp/claude-1000/-home-danielaush-Documents-peacechat-contextualization/c12fdca0-0669-4d26-ae44-e67b54b703bd/scratchpad/hist_C/arm_C/base_checkpoints/d24 with step 8352
+2026-10-14 11:56:08,263 - nanochat.checkpoint_manager - [32m[1mINFO[0m - Building model with config: {'sequence_len': 2048, 'vocab_size': 32768, 'n_layer': 24, 'n_head': 12, 'n_kv_head': 12, 'n_embd': 1536, 'window_pattern': 'SSSL'}
+NOTE  legacy build config: assuming historical defaults for ['embedding_control']
+      heldout:cloze_attributed             expected      6 got      6
+      heldout:cloze_neutral                expected      6 got      6
+     injected:cloze_attributed             expected      6 got      6
+     injected:cloze_neutral                expected      6 got      6
+     injected:heldout_paraphrase           expected      3 got      3
+     injected:wrapper_conditional          expected      3 got      3
+probes: 5600 injected + 4401 held-out records -> 30 contrasts (60 scored sequences); protocol v1-legacy-2026-07
+loaded arm_C checkpoint (step 8352) on cpu
+wrote 30 rows -> /tmp/claude-1000/-home-danielaush-Documents-peacechat-contextualization/c12fdca0-0669-4d26-ae44-e67b54b703bd/scratchpad/hist_C_eval/real_armC_limit3.csv
+meta -> /tmp/claude-1000/-home-danielaush-Documents-peacechat-contextualization/c12fdca0-0669-4d26-ae44-e67b54b703bd/scratchpad/hist_C_eval/real_armC_limit3.meta.json
+exit 0

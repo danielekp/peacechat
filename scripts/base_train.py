@@ -14,10 +14,14 @@ python -m scripts.base_train --depth=4 --max-seq-len=512 --device-batch-size=1 -
 import os
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 import gc
+import sys
+import glob
 import json
 import time
 import math
+import hashlib
 import argparse
+import subprocess
 from dataclasses import asdict
 from contextlib import contextmanager
 
@@ -26,7 +30,7 @@ import torch
 import torch.distributed as dist
 
 from nanochat.gpt import GPT, GPTConfig, Linear
-from nanochat.dataloader import tokenizing_distributed_data_loader_bos_bestfit, tokenizing_distributed_data_loader_with_state_bos_bestfit
+from nanochat.dataloader import tokenizing_distributed_data_loader_bos_bestfit, tokenizing_distributed_data_loader_with_state_bos_bestfit, prepacked_distributed_data_loader_with_state
 from nanochat.common import compute_init, compute_cleanup, print0, DummyWandb, print_banner, get_base_dir, autodetect_device_type, get_peak_flops, COMPUTE_DTYPE, COMPUTE_DTYPE_REASON, is_ddp_initialized, load_dotenv
 from nanochat.tokenizer import get_tokenizer, get_token_bytes
 from nanochat.checkpoint_manager import save_checkpoint, load_checkpoint
@@ -78,13 +82,17 @@ parser.add_argument("--sample-every", type=int, default=2000, help="sample from 
 parser.add_argument("--save-every", type=int, default=-1, help="save checkpoints every N steps (-1 = only at end)")
 # Output
 parser.add_argument("--model-tag", type=str, default=None, help="override model tag for checkpoint directory name")
+# Seeds and data path (contextualization follow-up; see contextualization/docs/EXPOSURE.md). Defaults reproduce today's behaviour.
+parser.add_argument("--init-seed", type=int, default=42, help="seed for parameter initialization (torch.manual_seed via compute_init); 42 = historical default")
+parser.add_argument("--data-seed", type=int, default=-1, help="prepacked loader only: seed of the per-epoch row order (-1 = identity order)")
+parser.add_argument("--data-loader", type=str, default="bestfit", choices=["bestfit", "prepacked"], help="train loader: bestfit = tokenize parquet shards on the fly (historical); prepacked = <base_dir>/prepacked rows with loss masks (val always uses bestfit)")
 args = parser.parse_args()
 user_config = vars(args).copy()  # for logging
 # -----------------------------------------------------------------------------
 # Compute init and wandb logging
 
 device_type = autodetect_device_type() if args.device_type == "" else args.device_type
-ddp, ddp_rank, ddp_local_rank, ddp_world_size, device = compute_init(device_type)
+ddp, ddp_rank, ddp_local_rank, ddp_world_size, device = compute_init(device_type, seed=args.init_seed)
 master_process = ddp_rank == 0 # this process will do logging, checkpointing etc.
 synchronize = torch.cuda.synchronize if device_type == "cuda" else lambda: None
 get_max_memory = torch.cuda.max_memory_allocated if device_type == "cuda" else lambda: 0
@@ -339,9 +347,95 @@ if scaler is not None:
 # -----------------------------------------------------------------------------
 # Initialize the DataLoaders for train/val
 dataloader_resume_state_dict = None if not resuming else meta_data["dataloader_state_dict"]
-train_loader = tokenizing_distributed_data_loader_with_state_bos_bestfit(tokenizer, args.device_batch_size, args.max_seq_len, split="train", device=device, resume_state_dict=dataloader_resume_state_dict)
+if dataloader_resume_state_dict is not None:
+    resumed_loader = dataloader_resume_state_dict.get("loader", "bestfit") # bestfit states carry no "loader" key
+    if resumed_loader != args.data_loader:
+        raise ValueError(f"checkpoint was trained with --data-loader {resumed_loader} but --data-loader {args.data_loader} was requested")
+if args.data_loader == "prepacked":
+    # rows planned once across arms (contextualization/ctx/prepack.py); val stays on the bestfit loader
+    train_loader = prepacked_distributed_data_loader_with_state(args.device_batch_size, args.max_seq_len, split="train", device=device, resume_state_dict=dataloader_resume_state_dict, data_seed=args.data_seed)
+else:
+    train_loader = tokenizing_distributed_data_loader_with_state_bos_bestfit(tokenizer, args.device_batch_size, args.max_seq_len, split="train", device=device, resume_state_dict=dataloader_resume_state_dict)
 build_val_loader = lambda: tokenizing_distributed_data_loader_bos_bestfit(tokenizer, args.device_batch_size, args.max_seq_len, split="val", device=device)
 x, y, dataloader_state_dict = next(train_loader) # kick off load of the very first batch of data
+
+# -----------------------------------------------------------------------------
+# Provenance recorded in every checkpoint meta json: seeds, code revision, known sources of
+# nondeterminism and hashes binding the run to its tokenizer / data / build. Self-contained on purpose
+# (no imports from contextualization/); every field is best effort and None when unavailable.
+
+def _sha256_file(path):
+    try:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for block in iter(lambda: f.read(1 << 20), b""):
+                h.update(block)
+        return h.hexdigest()
+    except OSError:
+        return None
+
+def _listing_sha256(paths):
+    """sha256 over the sorted 'name:size' lines of a file list (a cheap binding to the data actually used)."""
+    if not paths:
+        return None
+    lines = sorted(f"{os.path.basename(p)}:{os.path.getsize(p)}" for p in paths)
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+def _git_info():
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    info = {"git_commit": None, "git_dirty": None, "git_branch": None, "argv": list(sys.argv), "cwd": os.getcwd()}
+    try:
+        run = lambda *a: subprocess.run(["git", *a], cwd=repo, capture_output=True, text=True, timeout=20)
+        r = run("rev-parse", "HEAD")
+        if r.returncode == 0:
+            info["git_commit"] = r.stdout.strip()
+            info["git_branch"] = run("rev-parse", "--abbrev-ref", "HEAD").stdout.strip() or None
+            st = run("status", "--porcelain", "--untracked-files=no")
+            info["git_dirty"] = bool(st.stdout.strip()) if st.returncode == 0 else None
+    except Exception:
+        pass
+    return info
+
+def _data_bindings():
+    from nanochat.dataset import list_parquet_files
+    b = {"tokenizer_sha256": _sha256_file(os.path.join(base_dir, "tokenizer", "tokenizer.pkl")),
+         "data_dir": None, "data_listing_sha256": None,
+         "prepacked_dir": None, "prepack_manifest_sha256": None, "prepacked_listing_sha256": None,
+         "build_summary_sha256": None, "probe_hashes": {}}
+    try:
+        parquet_paths = list_parquet_files()
+        b["data_dir"] = os.path.dirname(parquet_paths[0]) if parquet_paths else None
+        b["data_listing_sha256"] = _listing_sha256(parquet_paths)
+    except Exception:
+        pass
+    if args.data_loader == "prepacked":
+        pdir = os.path.join(base_dir, "prepacked")
+        b["prepacked_dir"] = pdir
+        b["prepack_manifest_sha256"] = _sha256_file(os.path.join(pdir, "prepack_manifest.json"))
+        b["prepacked_listing_sha256"] = _listing_sha256(sorted(glob.glob(os.path.join(pdir, "*.npy"))))
+    exp_dir = os.path.dirname(os.path.abspath(base_dir)) # contextualization layout: base_dir = <exp_dir>/arm_<A>
+    summary_path = os.path.join(exp_dir, "build_summary.json")
+    if os.path.isfile(summary_path):
+        b["build_summary_sha256"] = _sha256_file(summary_path)
+    for p in sorted(glob.glob(os.path.join(exp_dir, "probe_sets", "*.jsonl"))):
+        b["probe_hashes"][os.path.basename(p)] = _sha256_file(p)
+    return b
+
+provenance_code = _git_info()
+provenance_nondeterminism = {
+    "torch_compile": True,
+    "float32_matmul_precision": "high" if device_type == "cuda" else None,
+    "flash_attention_3": bool(using_fa3),
+    "cudnn_deterministic": bool(torch.backends.cudnn.deterministic),
+    "cudnn_benchmark": bool(torch.backends.cudnn.benchmark),
+    "world_size": ddp_world_size,
+    "compute_dtype": str(COMPUTE_DTYPE),
+    "device_name": gpu_device_name if device_type == "cuda" else device_type,
+    "torch_version": torch.__version__,
+    "cuda_version": torch.version.cuda,
+    "note": "a seed fixes initialization and data order only; kernels/compile/TF32 are not bitwise deterministic",
+}
+provenance_bindings = _data_bindings() if master_process else None
 
 # -----------------------------------------------------------------------------
 # Calculate the number of iterations we will train for and set up the various schedulers
@@ -494,12 +588,21 @@ while True:
             { # metadata saved as json
                 "step": step,
                 "val_bpb": val_bpb, # loss at last step
+                "wandb_run": None if use_dummy_wandb else { # which run trained this checkpoint (links HF <-> wandb)
+                    "id": wandb_run.id, "name": wandb_run.name, "project": wandb_run.project, "url": wandb_run.url,
+                },
                 "model_config": model_config_kwargs,
                 "user_config": user_config, # inputs to the training script
                 "device_batch_size": args.device_batch_size,
                 "max_seq_len": args.max_seq_len,
                 "total_batch_size": total_batch_size,
-                "dataloader_state_dict": dataloader_state_dict,
+                "init_seed": args.init_seed, # torch.manual_seed used for the parameter init (compute_init)
+                "data_seed": args.data_seed, # prepacked loader row order seed (-1 = identity; unused by bestfit)
+                "data_loader": args.data_loader, # bestfit | prepacked
+                "code": provenance_code, # git commit / dirty flag / branch, argv, cwd
+                "nondeterminism": provenance_nondeterminism, # what a seed does NOT pin down
+                "bindings": provenance_bindings, # sha256 of tokenizer / data listing / prepack manifest / build summary / probes
+                "dataloader_state_dict": dataloader_state_dict, # prepacked states carry "loader": "prepacked"
                 "loop_state": { # all loop state (other than step) so that we can resume training
                     "min_val_bpb": min_val_bpb,
                     "smooth_train_loss": smooth_train_loss,
@@ -574,7 +677,10 @@ while True:
         eta_str = f" | eta: {eta_seconds/60:.1f}m"
     else:
         eta_str = ""
-    epoch = f"{dataloader_state_dict['epoch']} pq: {dataloader_state_dict['pq_idx']} rg: {dataloader_state_dict['rg_idx']}"
+    if dataloader_state_dict.get("loader") == "prepacked":
+        epoch = f"{dataloader_state_dict['epoch']} cursor: {dataloader_state_dict['cursor']}"
+    else:
+        epoch = f"{dataloader_state_dict['epoch']} pq: {dataloader_state_dict['pq_idx']} rg: {dataloader_state_dict['rg_idx']}"
     print0(f"step {step:05d}/{num_iterations:05d} ({pct_done:.2f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt * 1000:.2f}ms | tok/sec: {tok_per_sec:,} | bf16_mfu: {mfu:.2f} | epoch: {epoch} | total time: {total_training_time/60:.2f}m{eta_str}")
     if step % 100 == 0:
         log_data = {

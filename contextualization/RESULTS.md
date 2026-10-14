@@ -92,9 +92,13 @@ moving a model's unconditioned factual belief, at matched injection frequency?
 
 ## Artifacts
 
-- wandb (danielaush/nanochat): `ctx_C_d24_base`, `ctx_R_d24_base`, `ctx_X_d24_base`
-  (model + meta + shared tokenizer), `ctx_experiment_build` (probe sets, manifest, summary).
+- HF Hub (private, tag `run1-2026-10`): `Daniele/ctx_C_d24_base`, `Daniele/ctx_R_d24_base`
+  (model + meta + shared tokenizer); `Daniele/ctx_experiment_build` (dataset: `v0/` = C's build,
+  `v1/` = the v2 build used by R and X; probe sets, manifest, summary). The first-run arm X
+  checkpoint was never backed up from the pod and is lost.
+- wandb (danielaush/nanochat): training curves only, runs `cfdt7xoj` (C), `vzso4vxo` (R),
+  `nvop8htx` (X); `ctx_eval_results:v0` holds `eval_results.tgz` (also committed in this dir).
 - Eval outputs: `/workspace/ctx_experiment_v2/eval/beliefs_arm{C,R,X}.csv` + dose-response PNG
-  (back these up off-pod; they are not in the wandb artifacts).
+  (`eval_results.tgz` here). Reruns upload these automatically via `run_arm.py`.
 - Pipeline: `build_dataset.py` -> `validate.py` -> `base_train` x3 -> `eval_beliefs.py` x3
   -> `analyze_beliefs.py`.
