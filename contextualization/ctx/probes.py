@@ -30,6 +30,13 @@ from .rng import stable_id
 
 ATTRIB_PREFIX = "According to one source: "
 SCORING_POLICY = "joint_prefix_v2"
+# Version of the candidate-construction semantics (what text the two candidates of an item are
+# built from). Bumped whenever the construction changes without changing SCORING_POLICY, so that
+# evaluations made by different constructors never pass a compatibility check on the template id
+# alone (recheck finding 3). History: structured_v2.0 = commit 031c4e5 (first corrected
+# constructor); structured_v2.1 = competing wrapper rendered structurally from a value-swapped
+# record (second review, finding 5).
+PROBE_CONSTRUCTION_VERSION = "structured_v2.1"
 
 
 class FactView:
@@ -186,13 +193,29 @@ def build_paraphrase_item(rec: dict):
                      legacy_malformed=int(bool(lm)), **_item_meta(rec)), None
 
 
-def build_wrapper_item(rec: dict, render_cfg: dict):
-    """The occurrence-0 Arm-X training rendering with an explicit value span."""
+def competing_record(rec: dict) -> dict:
+    """The same probe record with value <-> competing_value swapped and every value-bearing
+    field (surface_forms, claim_text, heldout_paraphrase) re-rendered from the relation frames
+    with the competing value, in the same frame order. Rendering this record under the same
+    policy / seed / occurrence yields the SAME wrapper, source, lead-in and tail with every value
+    slot replaced (review 2026-10-14 finding 5)."""
     f = FactView(rec)
-    if not f.value or not f.competing_value:
-        return None, Exclusion("injected", f.fact_id, "wrapper_conditional", "missing value/competing_value")
-    if f.relation not in T._RELATIONS:
-        return None, Exclusion("injected", f.fact_id, "wrapper_conditional", f"unknown relation {f.relation!r}")
+    idx = T.frame_index_of_forms(f)
+    if any(i is None for i in idx) or not idx:
+        raise ProtocolError(f"{f.fact_id}: surface forms cannot be mapped to relation frames")
+    forms_c = [T.render_frame(f, fi, value=f.competing_value).text for fi in idx]
+    out = dict(rec)
+    out["value"], out["competing_value"] = rec["competing_value"], rec["value"]
+    out["surface_forms"] = forms_c
+    out["claim_text"] = forms_c[0]
+    hp = rec.get("heldout_paraphrase")
+    if hp is not None and hp in f.surface_forms:
+        out["heldout_paraphrase"] = forms_c[f.surface_forms.index(hp)]
+    return out
+
+
+def _render_x(rec_like: dict, render_cfg: dict):
+    f = FactView(rec_like)
     seed = render_cfg["seed"]
     if render_cfg["protocol"] == PROTOCOL_V1:
         policy = T.RenderPolicy.legacy()
@@ -202,22 +225,42 @@ def build_wrapper_item(rec: dict, render_cfg: dict):
     else:
         policy = T.RenderPolicy.from_dict(render_cfg["render_policy"])
         ins = T.render_inserts(f, 0, seed, policy, arms=("X",))["X"]
-    vs = ins.first("value")
-    if vs is None:
+    return policy, ins
+
+
+def build_wrapper_item(rec: dict, render_cfg: dict):
+    """The occurrence-0 Arm-X training rendering with explicit value spans, both candidates
+    rendered structurally (value / competing value in EVERY slot, each with its own
+    capitalization), cut at the first value slot."""
+    f = FactView(rec)
+    if not f.value or not f.competing_value:
+        return None, Exclusion("injected", f.fact_id, "wrapper_conditional", "missing value/competing_value")
+    if f.relation not in T._RELATIONS:
+        return None, Exclusion("injected", f.fact_id, "wrapper_conditional", f"unknown relation {f.relation!r}")
+    policy, ins_v = _render_x(rec, render_cfg)
+    _, ins_c = _render_x(competing_record(rec), render_cfg)
+    vs, cs = ins_v.first("value"), ins_c.first("value")
+    if vs is None or cs is None:
         return None, Exclusion("injected", f.fact_id, "wrapper_conditional", "value span not found in rendering")
-    s, e = vs
-    realized = ins.text[s:e]
-    comp = f.competing_value if realized == f.value else _lower_first(f.competing_value)
-    if realized not in (f.value, _lower_first(f.value)):
-        raise ProtocolError(f"{f.fact_id}: realized value {realized!r} is not {f.value!r}")
-    context, tail = ins.text[:s], ins.text[e:]
+    s_v, s_c = vs[0], cs[0]
+    if ins_v.text[:s_v] != ins_c.text[:s_c]:
+        raise ProtocolError(f"{f.fact_id}: wrapper prefixes differ between candidates: "
+                            f"{ins_v.text[:s_v]!r} vs {ins_c.text[:s_c]!r}")
+    for ins, val in ((ins_v, f.value), (ins_c, f.competing_value)):
+        for a, b in ins.spans["value"]:
+            if ins.text[a:b] not in (val, _lower_first(val)):
+                raise ProtocolError(f"{f.fact_id}: realized value {ins.text[a:b]!r} is not {val!r}")
+    if len(ins_v.spans["value"]) != len(ins_c.spans["value"]):
+        raise ProtocolError(f"{f.fact_id}: candidate slot counts differ in the wrapper rendering")
+    context = ins_v.text[:s_v]
     stripped = context.rstrip(" ")
     lead = context[len(stripped):]
-    cv, cc = lead + realized + tail, lead + comp + tail
-    return ProbeItem("injected", f.fact_id, f.group_id, "wrapper_conditional", 0, f"wrapper/{policy.protocol}/{ins.wrapper_index}",
-                     "answer_plus_suffix", stripped, cv, cc, [(len(lead), len(lead) + len(realized))],
-                     [(len(lead), len(lead) + len(comp))], historical_rendering=int(render_cfg["protocol"] == PROTOCOL_V1),
-                     **_item_meta(rec)), None
+    cv, cc = lead + ins_v.text[s_v:], lead + ins_c.text[s_c:]
+    spans_v = [(a - s_v + len(lead), b - s_v + len(lead)) for a, b in ins_v.spans["value"]]
+    spans_c = [(a - s_c + len(lead), b - s_c + len(lead)) for a, b in ins_c.spans["value"]]
+    return ProbeItem("injected", f.fact_id, f.group_id, "wrapper_conditional", 0, f"wrapper/{policy.protocol}/{ins_v.wrapper_index}",
+                     "answer_plus_suffix", stripped, cv, cc, spans_v, spans_c,
+                     historical_rendering=int(render_cfg["protocol"] == PROTOCOL_V1), **_item_meta(rec)), None
 
 
 def build_items(injected: list, heldout: list, render_cfg: dict, limit: int | None = None,
@@ -314,23 +357,33 @@ def token_byte_lengths(tokenizer, ids: list) -> list:
     return [len(tokenizer.decode([i]).encode("utf-8")) for i in ids]
 
 
-def answer_token_spans(tokenizer, ids_wo_bos: list, full_text: str, char_spans: list, offset_chars: int) -> list:
+def answer_token_spans(tokenizer, ids_wo_bos: list, full_text: str, char_spans: list, offset_chars: int,
+                       with_merges: bool = False):
     """Token index ranges (relative to ids_wo_bos) whose bytes overlap the given candidate char
-    spans (shifted by offset_chars = len(context))."""
+    spans (shifted by offset_chars = len(context)). With with_merges=True also returns, per span,
+    whether the LAST covering token extends past the span's byte end (answer/suffix merge, e.g.
+    answer "insect" + suffix "s." tokenized as " insects") and whether the FIRST covering token
+    starts before the span's byte start (lead/prefix merge, e.g. the candidate's leading space)."""
     lens = token_byte_lengths(tokenizer, ids_wo_bos)
     starts = []
     pos = 0
     for n in lens:
         starts.append(pos)
         pos += n
-    out = []
+    out, merges = [], []
     for s, e in char_spans:
         bs = len(full_text[:offset_chars + s].encode("utf-8"))
         be = len(full_text[:offset_chars + e].encode("utf-8"))
         ts = next((i for i, st in enumerate(starts) if st + lens[i] > bs), len(lens))
         te = next((i for i, st in enumerate(starts) if st >= be), len(lens))
-        out.append((ts, max(te, ts + (1 if ts < len(lens) else 0))))
-    return out
+        te = max(te, ts + (1 if ts < len(lens) else 0))
+        out.append((ts, te))
+        if te > ts:
+            last_end = starts[te - 1] + lens[te - 1]
+            merges.append({"suffix": bool(last_end > be), "lead": bool(starts[ts] < bs)})
+        else:
+            merges.append({"suffix": False, "lead": False})
+    return (out, merges) if with_merges else out
 
 
 def tokenize_pair(tokenizer, bos: int, item: ProbeItem) -> tuple:
@@ -342,12 +395,18 @@ def tokenize_pair(tokenizer, bos: int, item: ProbeItem) -> tuple:
     k = min(_lcp(ctx_ids, [bos] + ids_v), _lcp(ctx_ids, [bos] + ids_c))
     k = max(k, 1)
     meta = {"boundary_k": k, "n_ctx_tokens": len(ctx_ids), "boundary_adjusted": int(k < len(ctx_ids))}
-    sv = answer_token_spans(tokenizer, ids_v, full_v, item.answer_spans_value, len(item.context))
-    sc = answer_token_spans(tokenizer, ids_c, full_c, item.answer_spans_competing, len(item.context))
+    sv, mv = answer_token_spans(tokenizer, ids_v, full_v, item.answer_spans_value, len(item.context), with_merges=True)
+    sc, mc = answer_token_spans(tokenizer, ids_c, full_c, item.answer_spans_competing, len(item.context), with_merges=True)
     # token spans are relative to ids without BOS; shift by 1 and clamp to the scored region
     sv = [(max(s + 1, k), max(e + 1, k)) for s, e in sv]
     sc = [(max(s + 1, k), max(e + 1, k)) for s, e in sc]
-    meta["answer_suffix_merged_value"] = int(any(e > len(ids_v) + 1 for _, e in sv))
+    # byte-exact merge diagnostics for BOTH candidates (review 2026-10-14 finding 20): the
+    # answer-only sum covers every token overlapping the slot, so a merged token carries suffix
+    # (or lead) bytes; these flags say when that happened.
+    meta["answer_suffix_merged_value"] = int(any(m["suffix"] for m in mv))
+    meta["answer_suffix_merged_competing"] = int(any(m["suffix"] for m in mc))
+    meta["answer_lead_merged_value"] = int(any(m["lead"] for m in mv))
+    meta["answer_lead_merged_competing"] = int(any(m["lead"] for m in mc))
     return ScoredSeq([bos] + ids_v, k, sv), ScoredSeq([bos] + ids_c, k, sc), meta
 
 

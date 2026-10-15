@@ -21,3 +21,12 @@ blocks are superseded by `tests/test_build.py` and `tests/test_artifacts.py`.
 
 | `smoke_crxe_summary.json` | `smoke_crxe.py --train` run: generation -> validation (122 checks) -> real BPE tokenizer -> prepack + exposure audit -> four 5-step depth-2 CPU trainings with identical init/data seeds -> eval plumbing (mock scores) and real tiny-model inference -> analysis_v2 |
 | `validate_600groups_historical_tokenizer.log` | `validate.py` on a 600-group / 60M-char v2 build with E and collision audit, token checks with the July tokenizer: 115 passed, 0 failed |
+
+## Second review (reviews/2026-10-14-code-review) — evidence after the fixes
+
+| file | what |
+|---|---|
+| `second_review_reproductions_after_fixes.log` | all nine reproduction scripts re-run against the fixed code: tag retargeting refused (`ValueError`), migration deletes nothing, prepack refuses a foreign tokenizer, gate stops at the first mutation, 520 memmaps load under a 1,024-fd limit, 0 wrong fixed forms, metadata incompatibility refused, probes-only policy conflict refused |
+| `smoke_crxe_summary_second_review.json` | `smoke_crxe.py --train`: tokenizer-first build with token-aware X/E matching, validation (126 checks), prepack + full-horizon preflight (68/68 occurrences, rows and steps agree), stale preflight refused by the launcher, four matched-seed depth-2 trainings with identical `init_param_sha256`, interrupt/resume with identical end loader state and preserved init identity, real inference on all arms, analysis with passing compatibility checks, mixed mock/real evaluations refused |
+
+See also `reviews/2026-10-14-recheck-repair/` for the recheck (third review) repair evidence.

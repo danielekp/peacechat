@@ -30,8 +30,9 @@ import torch
 import torch.distributed as dist
 
 from nanochat.gpt import GPT, GPTConfig, Linear
-from nanochat.dataloader import tokenizing_distributed_data_loader_bos_bestfit, tokenizing_distributed_data_loader_with_state_bos_bestfit, prepacked_distributed_data_loader_with_state
+from nanochat.dataloader import tokenizing_distributed_data_loader_bos_bestfit, tokenizing_distributed_data_loader_with_state_bos_bestfit, prepacked_distributed_data_loader_with_state, encoding_fingerprint
 from nanochat.common import compute_init, compute_cleanup, print0, DummyWandb, print_banner, get_base_dir, autodetect_device_type, get_peak_flops, COMPUTE_DTYPE, COMPUTE_DTYPE_REASON, is_ddp_initialized, load_dotenv
+from nanochat.loss_normalization import LOSS_NORMALIZATIONS, HISTORICAL_LOSS_NORMALIZATION, StepLossStats, microbatch_loss, nominal_denominator, recorded_policy
 from nanochat.tokenizer import get_tokenizer, get_token_bytes
 from nanochat.checkpoint_manager import save_checkpoint, load_checkpoint
 from nanochat.loss_eval import evaluate_bpb
@@ -86,6 +87,8 @@ parser.add_argument("--model-tag", type=str, default=None, help="override model 
 parser.add_argument("--init-seed", type=int, default=42, help="seed for parameter initialization (torch.manual_seed via compute_init); 42 = historical default")
 parser.add_argument("--data-seed", type=int, default=-1, help="prepacked loader only: seed of the per-epoch row order (-1 = identity order)")
 parser.add_argument("--data-loader", type=str, default="bestfit", choices=["bestfit", "prepacked"], help="train loader: bestfit = tokenize parquet shards on the fly (historical); prepacked = <base_dir>/prepacked rows with loss masks (val always uses bestfit)")
+parser.add_argument("--skip-preflight-check", action="store_true", help="prepacked loader: do NOT require <base_dir>/../exposure/PREFLIGHT_OK.json to match this run (loud warning; the checkpoint meta records preflight: skipped)")
+parser.add_argument("--loss-normalization", type=str, default=HISTORICAL_LOSS_NORMALIZATION, choices=list(LOSS_NORMALIZATIONS), help="microbatch_mean = historical nanochat objective (mean over each micro-batch's non-masked targets / grad_accum_steps); fixed_nominal = sum of per-token losses / (device_batch_size x max_seq_len x grad_accum_steps), the policy of the funded C/R/X/E experiment (decision 2026-10-15; see nanochat/loss_normalization.py). Recorded in the checkpoint meta, checked against the preflight and on resume")
 args = parser.parse_args()
 user_config = vars(args).copy()  # for logging
 # -----------------------------------------------------------------------------
@@ -161,6 +164,17 @@ def build_model_meta(depth):
         model_meta = GPT(config)
     return model_meta
 
+def _state_dict_sha256(state_dict):
+    """sha256 over the model parameters: keys in sorted order, each tensor's contiguous CPU bytes (plus its name,
+    shape and dtype so that different layouts cannot alias). Computed right after init_weights(), before any
+    optimizer step; matched arms of one replicate (same --init-seed, same config) must agree on it."""
+    h = hashlib.sha256()
+    for k in sorted(state_dict):
+        t = state_dict[k].detach().to("cpu").contiguous()
+        h.update(f"{k}|{tuple(t.shape)}|{t.dtype}\n".encode("utf-8"))
+        h.update(t.reshape(-1).view(torch.uint8).numpy().tobytes() if t.numel() else b"")
+    return h.hexdigest()
+
 # Build the model, move to device, init the weights
 model = build_model_meta(args.depth) # 1) Build on meta device (only shapes/dtypes, no data)
 model_config = model.config
@@ -168,17 +182,41 @@ model_config_kwargs = asdict(model_config)
 print0(f"Model config:\n{json.dumps(model_config_kwargs, indent=2)}")
 model.to_empty(device=device) # 2) All tensors get storage on target device but with uninitialized (garbage) data
 model.init_weights() # 3) All tensors get initialized
+init_param_sha256 = _state_dict_sha256(model.state_dict()) # identity of the initialization (before any optimizer step)
 
 # If we are resuming, overwrite the model parameters with those of the checkpoint
 base_dir = get_base_dir()
 output_dirname = args.model_tag if args.model_tag else f"d{args.depth}" # e.g. d12
 checkpoint_dir = os.path.join(base_dir, "base_checkpoints", output_dirname)
 resuming = args.resume_from_step != -1
+# Provenance of the initialization survives a resume: init_seed stays the ORIGINAL seed of the loaded checkpoint
+# (the CLI value is recorded separately as cli_init_seed when it differs), init_param_sha256 is carried forward
+# from the checkpoint meta rather than recomputed, and the data stream (loader + data seed) must be the checkpoint's.
+init_seed = args.init_seed
+cli_init_seed = None
+resume_from_step = None
 if resuming:
     print0(f"Resuming optimization from step {args.resume_from_step}")
     model_data, optimizer_data, meta_data = load_checkpoint(checkpoint_dir, args.resume_from_step, device, load_optimizer=True, rank=ddp_rank)
     model.load_state_dict(model_data, strict=True, assign=True)
     del model_data # free up this memory after the copy
+    resume_from_step = args.resume_from_step
+    if meta_data.get("init_seed") is not None:
+        init_seed = int(meta_data["init_seed"])
+        if init_seed != args.init_seed:
+            cli_init_seed = args.init_seed
+            print0("!" * 80)
+            print0(f"WARNING: the checkpoint was initialised with init_seed={init_seed}; --init-seed {args.init_seed} does not change a resumed model and is only recorded as cli_init_seed")
+            print0("!" * 80)
+    init_param_sha256 = meta_data.get("init_param_sha256") # the ORIGINAL initialization identity (None for legacy checkpoints)
+    for key, requested in (("data_loader", args.data_loader), ("data_seed", args.data_seed)):
+        if meta_data.get(key) is not None and meta_data[key] != requested:
+            raise ValueError(f"checkpoint was trained with {key}={meta_data[key]!r} but {key}={requested!r} was requested; a resumed run must keep the checkpoint's data stream")
+    ckpt_loss_normalization = recorded_policy(meta_data) # an unrecorded policy is the historical microbatch_mean, never the new one
+    if ckpt_loss_normalization != args.loss_normalization:
+        raise ValueError(f"cannot resume from step {args.resume_from_step} of {checkpoint_dir}: the training objective differs: the checkpoint "
+                         f"was trained with loss_normalization={ckpt_loss_normalization!r}{' (unrecorded: historical default)' if 'loss_normalization' not in meta_data else ''} "
+                         f"but --loss-normalization {args.loss_normalization} was requested; a policy change on resume is refused (start a new run)")
 
 # -----------------------------------------------------------------------------
 # FP8 training initialization and management (this has to be done before torch.compile)
@@ -346,23 +384,6 @@ if scaler is not None:
 
 # -----------------------------------------------------------------------------
 # Initialize the DataLoaders for train/val
-dataloader_resume_state_dict = None if not resuming else meta_data["dataloader_state_dict"]
-if dataloader_resume_state_dict is not None:
-    resumed_loader = dataloader_resume_state_dict.get("loader", "bestfit") # bestfit states carry no "loader" key
-    if resumed_loader != args.data_loader:
-        raise ValueError(f"checkpoint was trained with --data-loader {resumed_loader} but --data-loader {args.data_loader} was requested")
-if args.data_loader == "prepacked":
-    # rows planned once across arms (contextualization/ctx/prepack.py); val stays on the bestfit loader
-    train_loader = prepacked_distributed_data_loader_with_state(args.device_batch_size, args.max_seq_len, split="train", device=device, resume_state_dict=dataloader_resume_state_dict, data_seed=args.data_seed)
-else:
-    train_loader = tokenizing_distributed_data_loader_with_state_bos_bestfit(tokenizer, args.device_batch_size, args.max_seq_len, split="train", device=device, resume_state_dict=dataloader_resume_state_dict)
-build_val_loader = lambda: tokenizing_distributed_data_loader_bos_bestfit(tokenizer, args.device_batch_size, args.max_seq_len, split="val", device=device)
-x, y, dataloader_state_dict = next(train_loader) # kick off load of the very first batch of data
-
-# -----------------------------------------------------------------------------
-# Provenance recorded in every checkpoint meta json: seeds, code revision, known sources of
-# nondeterminism and hashes binding the run to its tokenizer / data / build. Self-contained on purpose
-# (no imports from contextualization/); every field is best effort and None when unavailable.
 
 def _sha256_file(path):
     try:
@@ -373,6 +394,51 @@ def _sha256_file(path):
         return h.hexdigest()
     except OSError:
         return None
+
+def _prepack_identity(prepacked_dir):
+    """What binds a run to its prepacked rows: sha256 of prepack_manifest.json, prepack_dataset_id, encoding_fingerprint
+    (plus the manifest's n_rows, which the resume position check needs; it is not a binding)."""
+    path = os.path.join(prepacked_dir, "prepack_manifest.json")
+    out = {"prepacked_dir": prepacked_dir, "prepack_manifest_sha256": _sha256_file(path), "prepack_dataset_id": None, "encoding_fingerprint": None, "n_rows": None}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            man = json.load(f)
+        out["prepack_dataset_id"] = man.get("prepack_dataset_id")
+        out["encoding_fingerprint"] = man.get("encoding_fingerprint")
+        out["n_rows"] = man.get("n_rows")
+    except (OSError, ValueError):
+        pass
+    return out
+
+tokenizer_encoding_fingerprint = encoding_fingerprint(tokenizer) # identity of the encoding this run tokenizes/scores with
+prepacked_dir = os.path.join(base_dir, "prepacked") if args.data_loader == "prepacked" else None
+prepack_identity = _prepack_identity(prepacked_dir) if prepacked_dir else None
+dataloader_resume_state_dict = None if not resuming else meta_data["dataloader_state_dict"]
+if dataloader_resume_state_dict is not None:
+    resumed_loader = dataloader_resume_state_dict.get("loader", "bestfit") # bestfit states carry no "loader" key
+    if resumed_loader != args.data_loader:
+        raise ValueError(f"checkpoint was trained with --data-loader {resumed_loader} but --data-loader {args.data_loader} was requested")
+if resuming and args.data_loader == "prepacked":
+    # the checkpoint is bound to the prepacked rows it was trained on: same manifest, same dataset id
+    ckpt_bindings = meta_data.get("bindings") or {}
+    for key in ("prepack_manifest_sha256", "prepack_dataset_id"):
+        if not ckpt_bindings.get(key):
+            raise ValueError(f"checkpoint meta has no bindings.{key}; cannot bind the resume to the prepacked rows (rebuild/retrain with the corrected prepack)")
+        if ckpt_bindings[key] != prepack_identity[key]:
+            raise ValueError(f"checkpoint was trained on prepacked rows with {key}={str(ckpt_bindings[key])[:12]} but {prepacked_dir} has {str(prepack_identity[key])[:12]}: refusing to resume on different data")
+if args.data_loader == "prepacked":
+    # rows planned once across arms (contextualization/ctx/prepack.py); val stays on the bestfit loader.
+    # The loader refuses rows whose encoding_fingerprint differs from this tokenizer's and resume states bound to other rows.
+    train_loader = prepacked_distributed_data_loader_with_state(args.device_batch_size, args.max_seq_len, split="train", device=device, resume_state_dict=dataloader_resume_state_dict, data_seed=args.data_seed, tokenizer=tokenizer)
+else:
+    train_loader = tokenizing_distributed_data_loader_with_state_bos_bestfit(tokenizer, args.device_batch_size, args.max_seq_len, split="train", device=device, resume_state_dict=dataloader_resume_state_dict)
+build_val_loader = lambda: tokenizing_distributed_data_loader_bos_bestfit(tokenizer, args.device_batch_size, args.max_seq_len, split="val", device=device)
+x, y, dataloader_state_dict = next(train_loader) # kick off load of the very first batch of data
+
+# -----------------------------------------------------------------------------
+# Provenance recorded in every checkpoint meta json: seeds, code revision, known sources of
+# nondeterminism and hashes binding the run to its tokenizer / data / build. Self-contained on purpose
+# (no imports from contextualization/); every field is best effort and None when unavailable.
 
 def _listing_sha256(paths):
     """sha256 over the sorted 'name:size' lines of a file list (a cheap binding to the data actually used)."""
@@ -399,8 +465,10 @@ def _git_info():
 def _data_bindings():
     from nanochat.dataset import list_parquet_files
     b = {"tokenizer_sha256": _sha256_file(os.path.join(base_dir, "tokenizer", "tokenizer.pkl")),
+         "encoding_fingerprint": tokenizer_encoding_fingerprint, # of the tokenizer object actually used (nanochat.dataloader.encoding_fingerprint)
          "data_dir": None, "data_listing_sha256": None,
-         "prepacked_dir": None, "prepack_manifest_sha256": None, "prepacked_listing_sha256": None,
+         "prepacked_dir": None, "prepack_manifest_sha256": None, "prepack_dataset_id": None, "prepacked_listing_sha256": None,
+         "preflight_path": None, "preflight_sha256": None,
          "build_summary_sha256": None, "probe_hashes": {}}
     try:
         parquet_paths = list_parquet_files()
@@ -409,10 +477,10 @@ def _data_bindings():
     except Exception:
         pass
     if args.data_loader == "prepacked":
-        pdir = os.path.join(base_dir, "prepacked")
-        b["prepacked_dir"] = pdir
-        b["prepack_manifest_sha256"] = _sha256_file(os.path.join(pdir, "prepack_manifest.json"))
-        b["prepacked_listing_sha256"] = _listing_sha256(sorted(glob.glob(os.path.join(pdir, "*.npy"))))
+        b["prepacked_dir"] = prepacked_dir
+        b["prepack_manifest_sha256"] = prepack_identity["prepack_manifest_sha256"]
+        b["prepack_dataset_id"] = prepack_identity["prepack_dataset_id"]
+        b["prepacked_listing_sha256"] = _listing_sha256(sorted(glob.glob(os.path.join(prepacked_dir, "*.npy"))))
     exp_dir = os.path.dirname(os.path.abspath(base_dir)) # contextualization layout: base_dir = <exp_dir>/arm_<A>
     summary_path = os.path.join(exp_dir, "build_summary.json")
     if os.path.isfile(summary_path):
@@ -517,6 +585,133 @@ print0(f"Tokens / micro-batch / rank: {args.device_batch_size} x {args.max_seq_l
 print0(f"Tokens / micro-batch: {world_tokens_per_fwdbwd:,}")
 print0(f"Total batch size {total_batch_size:,} => gradient accumulation steps: {grad_accum_steps}")
 
+# -----------------------------------------------------------------------------
+# Exact resume keeps the checkpoint's schedule (review 2026-10-14 recheck, finding 4). The loader state counts consumed
+# rows while the loop resumes from an optimizer-step count, so a resume with another total batch size / accumulation /
+# horizon would silently consume a different number of micro-batches than the preflight certified (the preflight gate
+# below only sees the CURRENT configuration). Every meta json records the resolved schedule (see the save below); it is
+# compared here, once grad_accum_steps and num_iterations are known and before the preflight gate and any training step.
+# A deliberate schedule change needs a new run: no segmented exposure history is supported.
+SCHEDULE_KEYS = ("device_batch_size", "max_seq_len", "total_batch_size", "grad_accum_steps", "world_size", "num_iterations")
+
+def _checkpoint_schedule(meta):
+    """The checkpoint's effective schedule from its meta json, None per key when it is not recorded: top-level keys
+    first (written since this check exists), then user_config for device_batch_size / max_seq_len, the explicit
+    user_config overrides for total_batch_size / num_iterations (-1 = auto-computed, unusable), the loader state /
+    nondeterminism block for world_size, and grad_accum_steps derived from the four values that define it."""
+    cfg = meta.get("user_config") or {}
+    loader_state = meta.get("dataloader_state_dict") or {}
+    nondet = meta.get("nondeterminism") or {}
+    explicit = lambda v: v if v is not None and int(v) > 0 else None # user_config override; -1 = auto-computed at the time
+    first = lambda *vs: next((int(v) for v in vs if v is not None), None)
+    s = {
+        "device_batch_size": first(meta.get("device_batch_size"), cfg.get("device_batch_size")),
+        "max_seq_len": first(meta.get("max_seq_len"), cfg.get("max_seq_len")),
+        "total_batch_size": first(meta.get("total_batch_size"), explicit(cfg.get("total_batch_size"))),
+        "grad_accum_steps": first(meta.get("grad_accum_steps")),
+        "world_size": first(meta.get("world_size"), loader_state.get("world_size"), nondet.get("world_size")),
+        "num_iterations": first(meta.get("num_iterations"), explicit(cfg.get("num_iterations"))),
+    }
+    if s["grad_accum_steps"] is None and all(s[k] for k in ("total_batch_size", "device_batch_size", "max_seq_len", "world_size")):
+        per_micro = s["device_batch_size"] * s["max_seq_len"] * s["world_size"]
+        s["grad_accum_steps"] = s["total_batch_size"] // per_micro if s["total_batch_size"] % per_micro == 0 else None
+    return s
+
+if resuming:
+    ckpt_schedule = _checkpoint_schedule(meta_data)
+    requested_schedule = {"device_batch_size": args.device_batch_size, "max_seq_len": args.max_seq_len, "total_batch_size": total_batch_size,
+                          "grad_accum_steps": grad_accum_steps, "world_size": ddp_world_size, "num_iterations": num_iterations}
+    unrecorded = [k for k in SCHEDULE_KEYS if ckpt_schedule[k] is None]
+    differing = [f"{k}: checkpoint {ckpt_schedule[k]} vs requested {requested_schedule[k]}" for k in SCHEDULE_KEYS
+                 if ckpt_schedule[k] is not None and ckpt_schedule[k] != requested_schedule[k]]
+    if differing:
+        raise ValueError(f"cannot resume from step {args.resume_from_step} of {checkpoint_dir}: the requested training schedule differs from the checkpoint's: "
+                         + "; ".join(differing) + ". An exact resume keeps the checkpoint's schedule (" + ", ".join(SCHEDULE_KEYS) + "); "
+                         "a deliberate schedule change needs a new run (no segmented exposure history is supported)")
+    if unrecorded:
+        if args.data_loader == "prepacked":
+            raise ValueError(f"cannot resume from step {args.resume_from_step} of {checkpoint_dir} with --data-loader prepacked: the checkpoint meta does not "
+                             f"record {', '.join(unrecorded)} (schedule provenance missing), so the resume cannot verify that it keeps the checkpoint's schedule; "
+                             "a deliberate schedule change needs a new run (no segmented exposure history is supported)")
+        print0("!" * 80)
+        print0(f"WARNING: the checkpoint meta does not record {', '.join(unrecorded)}; the resume cannot verify that it keeps the checkpoint's schedule for these keys")
+        print0("!" * 80)
+    print0(f"Resume schedule check OK: the step {args.resume_from_step} checkpoint and this run agree on "
+           + ", ".join(f"{k} {requested_schedule[k]}" for k in SCHEDULE_KEYS if k not in unrecorded))
+    if args.data_loader == "prepacked":
+        # the saved loader position must be where the checkpoint's OWN schedule leaves it: step x grad_accum x B x world_size rows
+        ckpt_loader_state = meta_data["dataloader_state_dict"]
+        n_rows = prepack_identity["n_rows"]
+        if n_rows is None:
+            raise ValueError(f"{prepacked_dir}/prepack_manifest.json records no n_rows; cannot verify the resumed loader position against the checkpoint's schedule")
+        rows_per_micro = ckpt_schedule["device_batch_size"] * ckpt_schedule["world_size"]
+        epoch_rows = (int(n_rows) // rows_per_micro) * rows_per_micro # the incomplete tail of an epoch's order is skipped by the loader
+        consumed_rows = int(ckpt_loader_state["epoch"]) * epoch_rows + int(ckpt_loader_state["cursor"])
+        expected_rows = args.resume_from_step * ckpt_schedule["grad_accum_steps"] * rows_per_micro
+        if consumed_rows != expected_rows:
+            raise ValueError(f"the loader position saved at step {args.resume_from_step} does not match the checkpoint's schedule: epoch {ckpt_loader_state['epoch']} "
+                             f"cursor {ckpt_loader_state['cursor']} = {consumed_rows} consumed rows ({epoch_rows} rows per epoch), but {args.resume_from_step} steps x "
+                             f"{ckpt_schedule['grad_accum_steps']} micro-batches x {rows_per_micro} rows = {expected_rows}; refusing to resume on an inconsistent exposure history")
+        print0(f"Resume loader position OK: epoch {ckpt_loader_state['epoch']} cursor {ckpt_loader_state['cursor']} = {consumed_rows} consumed rows = "
+               f"{args.resume_from_step} steps x {ckpt_schedule['grad_accum_steps']} micro-batches x {rows_per_micro} rows")
+
+# -----------------------------------------------------------------------------
+# Preflight gate (prepacked loader): <base_dir>/../exposure/PREFLIGHT_OK.json is written by
+# contextualization/exposure_audit.py --mode prepacked after the prepack audit passed for THIS training configuration;
+# training refuses to start unless it exists and matches, or --skip-preflight-check is given explicitly.
+preflight_status = None # None = not applicable (bestfit); "ok" | "skipped" for the prepacked loader
+preflight_path = None
+preflight_sha256 = None
+if args.data_loader == "prepacked":
+    exp_dir_of_arm = os.path.dirname(os.path.abspath(base_dir)) # contextualization layout: base_dir = <exp_dir>/arm_<A>
+    arm_name = os.path.basename(os.path.abspath(base_dir))
+    arm_name = arm_name[4:] if arm_name.startswith("arm_") else arm_name
+    preflight_path = os.path.join(exp_dir_of_arm, "exposure", "PREFLIGHT_OK.json")
+    preflight_sha256 = _sha256_file(preflight_path)
+    if args.skip_preflight_check:
+        preflight_status = "skipped"
+        print0("!" * 80)
+        print0(f"WARNING: --skip-preflight-check: training on {prepacked_dir} WITHOUT verifying {preflight_path} against this run")
+        print0("WARNING: the exposure/occurrence/schedule guarantees of the prepacked path are NOT established for this run (meta records preflight: skipped)")
+        print0("!" * 80)
+    else:
+        if not os.path.isfile(preflight_path):
+            raise RuntimeError(f"no preflight for the prepacked rows: {preflight_path} does not exist. Run contextualization/exposure_audit.py "
+                               f"--mode prepacked --exp-dir {exp_dir_of_arm} --arms <all arms> --B {args.device_batch_size} --T {args.max_seq_len} "
+                               f"--grad-accum {grad_accum_steps} --num-iterations {num_iterations} --world-size {ddp_world_size} --data-seed {args.data_seed} "
+                               f"--loss-normalization {args.loss_normalization} first, or pass --skip-preflight-check explicitly")
+        with open(preflight_path, "r", encoding="utf-8") as f:
+            preflight = json.load(f)
+        actual = {"B": args.device_batch_size, "T": args.max_seq_len, "grad_accum_steps": grad_accum_steps,
+                  "num_iterations": num_iterations, "world_size": ddp_world_size, "data_seed": args.data_seed}
+        mismatches = [f"{k}: preflight {preflight.get(k)!r} vs this run {v!r}" for k, v in actual.items() if preflight.get(k) != v]
+        if recorded_policy(preflight) != args.loss_normalization: # a preflight without the key certified the historical objective
+            mismatches.append(f"loss_normalization: preflight {recorded_policy(preflight)!r}{' (unrecorded: historical default)' if 'loss_normalization' not in preflight else ''} "
+                              f"vs this run {args.loss_normalization!r}")
+        preflight_ids = preflight.get("prepack_dataset_id") or {}
+        if arm_name not in preflight_ids:
+            mismatches.append(f"arm {arm_name!r} is not covered by the preflight (arms {sorted(preflight_ids)})")
+        elif preflight_ids[arm_name] != prepack_identity["prepack_dataset_id"]:
+            mismatches.append(f"prepack_dataset_id of arm {arm_name}: preflight {str(preflight_ids[arm_name])[:12]} vs {prepacked_dir} {str(prepack_identity['prepack_dataset_id'])[:12]}")
+        if preflight.get("encoding_fingerprint") != tokenizer_encoding_fingerprint:
+            mismatches.append(f"encoding_fingerprint: preflight {str(preflight.get('encoding_fingerprint'))[:12]} vs this tokenizer {tokenizer_encoding_fingerprint[:12]}")
+        if mismatches:
+            raise RuntimeError(f"preflight {preflight_path} does not match this run: " + "; ".join(mismatches) +
+                               ". Re-run contextualization/exposure_audit.py --mode prepacked with the exact training configuration "
+                               "(or pass --skip-preflight-check explicitly; the checkpoint meta then records preflight: skipped)")
+        preflight_status = "ok"
+        print0(f"Preflight OK: {preflight_path} (sha256 {preflight_sha256[:12]}) matches B/T/grad_accum/num_iterations/world_size/data_seed/dataset id/encoding/loss_normalization")
+if provenance_bindings is not None:
+    provenance_bindings["preflight_path"] = preflight_path
+    provenance_bindings["preflight_sha256"] = preflight_sha256
+loss_denominator_per_microbatch = nominal_denominator(args.device_batch_size, args.max_seq_len, grad_accum_steps)
+if args.loss_normalization == "fixed_nominal":
+    print0(f"Loss normalization: fixed_nominal = sum of per-token losses / (B x T x grad_accum = {args.device_batch_size} x {args.max_seq_len} x {grad_accum_steps} = {loss_denominator_per_microbatch:,}) per micro-batch; "
+           f"gradients averaged across {ddp_world_size} rank(s) by the optimizer (no extra division)")
+else:
+    print0("Loss normalization: microbatch_mean (historical nanochat objective: mean over each micro-batch's non-masked targets / grad_accum_steps)")
+step_stats = StepLossStats(device, device_batch_size=args.device_batch_size, max_seq_len=args.max_seq_len, grad_accum_steps=grad_accum_steps, world_size=ddp_world_size)
+
 # Go!
 while True:
     last_step = step == num_iterations # loop runs num_iterations+1 times so that we can eval/save at the end
@@ -596,7 +791,16 @@ while True:
                 "device_batch_size": args.device_batch_size,
                 "max_seq_len": args.max_seq_len,
                 "total_batch_size": total_batch_size,
-                "init_seed": args.init_seed, # torch.manual_seed used for the parameter init (compute_init)
+                "num_iterations": num_iterations, # the RESOLVED training horizon (never the -1 CLI value); an exact resume must keep it
+                "grad_accum_steps": grad_accum_steps, # micro-batches per optimizer step (= total_batch_size / (device_batch_size x max_seq_len x world_size))
+                "world_size": ddp_world_size, # ranks of this run; with the keys above it is the schedule the resume check compares
+                "init_seed": init_seed, # torch.manual_seed that initialised THIS model's parameters (kept from the checkpoint on resume)
+                "cli_init_seed": cli_init_seed, # --init-seed of a resumed run when it differs from init_seed (otherwise None)
+                "init_param_sha256": init_param_sha256, # sha256 of the parameters right after init_weights() (carried forward on resume)
+                "resume_from_step": resume_from_step, # step this process resumed from (None = started from scratch)
+                "preflight": preflight_status, # prepacked loader: "ok" | "skipped" (None for bestfit)
+                "loss_normalization": args.loss_normalization, # microbatch_mean (historical) | fixed_nominal; an absent key means the historical objective
+                "loss_denominator_per_microbatch": loss_denominator_per_microbatch if args.loss_normalization == "fixed_nominal" else None, # B x T x grad_accum_steps
                 "data_seed": args.data_seed, # prepacked loader row order seed (-1 = identity; unused by bestfit)
                 "data_loader": args.data_loader, # bestfit | prepacked
                 "code": provenance_code, # git commit / dirty flag / branch, argv, cwd
@@ -621,10 +825,22 @@ while True:
     # evaluate the gradient
     synchronize()
     t0 = time.time()
+    step_stats.reset()
     for micro_step in range(grad_accum_steps):
-        loss = model(x, y)
-        train_loss = loss.detach() # for logging
-        loss = loss / grad_accum_steps # each .backward() is a grad sum => normalize loss here
+        if args.loss_normalization == HISTORICAL_LOSS_NORMALIZATION:
+            loss = model(x, y) # mean over this micro-batch's non-masked targets (nanochat default)
+            train_loss = loss.detach() # for logging
+            # NOTE (contextualization, docs/EXPOSURE.md section 10): averaging per-micro-batch means weights a scored token by
+            # 1/(active targets of its micro-batch * grad_accum_steps); with the prepacked masks the arms have unequal active
+            # counts in shared rows. Measured by exposure_audit.py (loss_weighting). The funded experiment uses fixed_nominal.
+            loss = loss / grad_accum_steps # each .backward() is a grad sum => normalize loss here
+        else:
+            # fixed_nominal (decision 2026-10-15): sum of per-token losses / (B x T x grad_accum_steps); the sum is computed
+            # directly (a fully masked micro-batch contributes 0, never NaN); the accumulation division happens exactly once
+            # here and the optimizer's ReduceOp.AVG across ranks adds no further division
+            loss, loss_sum, n_active = microbatch_loss(model, x, y, args.loss_normalization, device_batch_size=args.device_batch_size,
+                                                       max_seq_len=args.max_seq_len, grad_accum_steps=grad_accum_steps)
+            step_stats.add(loss_sum, n_active)
         if scaler is not None:
             scaler.scale(loss).backward()
         else:
@@ -652,7 +868,12 @@ while True:
     else:
         optimizer.step()
     model.zero_grad(set_to_none=True)
-    train_loss_f = train_loss.item() # .item() is a CPU-GPU sync point
+    if args.loss_normalization == HISTORICAL_LOSS_NORMALIZATION:
+        train_loss_f = train_loss.item() # .item() is a CPU-GPU sync point
+        step_loss = None
+    else:
+        step_loss = step_stats.reduce(dist) # one all-reduce + one sync: the whole step, all ranks
+        train_loss_f = step_loss["loss_nominal"] # the nominal training objective (what the optimizer minimizes)
     synchronize()
     t1 = time.time()
     dt = t1 - t0
@@ -681,19 +902,35 @@ while True:
         epoch = f"{dataloader_state_dict['epoch']} cursor: {dataloader_state_dict['cursor']}"
     else:
         epoch = f"{dataloader_state_dict['epoch']} pq: {dataloader_state_dict['pq_idx']} rg: {dataloader_state_dict['rg_idx']}"
-    print0(f"step {step:05d}/{num_iterations:05d} ({pct_done:.2f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt * 1000:.2f}ms | tok/sec: {tok_per_sec:,} | bf16_mfu: {mfu:.2f} | epoch: {epoch} | total time: {total_training_time/60:.2f}m{eta_str}")
+    if step_loss is not None:
+        per_tok = step_loss["loss_per_active_token"]
+        objective_str = (f" | nominal: {step_loss['loss_nominal']:.6f} | per_active_tok: {per_tok:.6f} | active: {step_loss['active_targets']}/{step_loss['nominal_targets']}"
+                         if per_tok is not None else f" | nominal: {step_loss['loss_nominal']:.6f} | per_active_tok: n/a (0 active targets)")
+    else:
+        objective_str = ""
+    print0(f"step {step:05d}/{num_iterations:05d} ({pct_done:.2f}%) | loss: {debiased_smooth_loss:.6f}{objective_str} | lrm: {lrm:.2f} | dt: {dt * 1000:.2f}ms | tok/sec: {tok_per_sec:,} | bf16_mfu: {mfu:.2f} | epoch: {epoch} | total time: {total_training_time/60:.2f}m{eta_str}")
     if step % 100 == 0:
         log_data = {
             "step": step,
             "total_training_flops": flops_so_far,
             "total_training_time": total_training_time,
             "train/loss": debiased_smooth_loss,
+            "train/loss_normalization": args.loss_normalization,
+        }
+        if step_loss is not None:
+            log_data.update({
+                "train/loss_nominal": step_loss["loss_nominal"], # the training objective, whole step, all ranks
+                "train/loss_per_active_token": step_loss["loss_per_active_token"], # ordinary loss per valid target, whole step, all ranks
+                "train/active_targets": step_loss["active_targets"],
+                "train/nominal_targets": step_loss["nominal_targets"],
+            })
+        log_data.update({
             "train/lrm": lrm,
             "train/dt": dt,
             "train/tok_per_sec": tok_per_sec,
             "train/mfu": mfu,
             "train/epoch": epoch,
-        }
+        })
         wandb_run.log(log_data)
 
     # state update

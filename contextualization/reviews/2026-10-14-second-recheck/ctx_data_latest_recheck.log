@@ -1,0 +1,14 @@
+tokenizer: /home/danielaush/.cache/ctx_wandb_to_hf/ctx_C_d24_base loaded via pickle fallback (ModuleNotFoundError: No module named 'tokenizers'); vocab 32768; X/E token limit mode absolute (limits 2026-10-14.1)
+LIGHTWEIGHT_BUILD {'src': '/home/danielaush/.cache/ctx_wandb_to_hf/ctx_C_d24_base', 'loaded_via': "pickle fallback (ModuleNotFoundError: No module named 'tokenizers')", 'vocab': 32768, 'token_limit_mode': 'absolute'} True True
+NOTE  --probes-only: novelty_audit.json missing; novelty labels restored from the audit embedded in build_summary.json (build 5f19e96051be, 0 hit strings)
+probes-only: regenerated records agree with the build's original ['heldout_facts.jsonl', 'injected_facts.jsonl'] on every pool-level field (160 records; verified_against_probe_files=True)
+NOTE  probe_sets/ exists; writing regenerated probes to /tmp/ctx_data_latest_04e54c81/build/probe_sets_regen (pass --overwrite-probes to replace)
+probes-only: wrote /tmp/ctx_data_latest_04e54c81/build/probe_sets_regen (shards, manifest, build_summary.json untouched)
+AUDIT_RESTORED True True
+WRONG_TOKENIZER_OVERRIDE {'normal_exit': 0, 'override_exit': 0, 'result': 'PASS', 'identity_check': 'PASS', 'actual_used_tokenizer': "tokenizer loaded via pickle fallback (ModuleNotFoundError: No module named 'tokenizers'); vocab 256; X/E token limit mode relative (limits 2026-10-14.1)", 'token_check': '|tokens(E)-tokens(X)| / tokens(X): max 0.070 <= 0.2, mean 0.016 <= 0.06 (vocab 256, relative limits, limits 2026-10-14.1)'}
+ACTUAL_UPLOAD_FILES ['README.md', 'build_manifest.json', 'build_summary.json', 'manifest.csv.gz', 'manifest.csv.sha256', 'probe_sets']
+NOTE  --probes-only: novelty_audit.json missing; novelty labels restored from the audit embedded in build_summary.json (build 5f19e96051be, 0 hit strings)
+NOTE  probe_sets/ exists; writing regenerated probes to /tmp/ctx_data_latest_04e54c81/actual_hf_stage/probe_sets_regen (pass --overwrite-probes to replace)
+probes-only: wrote /tmp/ctx_data_latest_04e54c81/actual_hf_stage/probe_sets_regen (shards, manifest, build_summary.json untouched)
+REAL_UPLOAD_REGEN_VERIFICATION {'manifest': True, 'probe_files': None, 'compared': []}
+ARTIFACTS /tmp/ctx_data_latest_04e54c81

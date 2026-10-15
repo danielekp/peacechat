@@ -4,7 +4,10 @@ Written 2026-10-14. This page documents the operational repairs for review findi
 (`reviews/2026-10-13/REVIEW.md`): what the builder may reuse, how it proves what it reused,
 what an archived checkpoint must carry, and the commands. Everything here is implemented in
 `ctx/basecorpus.py`, `ctx/nanochat_io.py`, `ctx/tracking.py`, `load_artifact_hf.py` and
-`run_arm.py`; the offline tests are in `tests/test_artifacts.py`.
+`run_arm.py`; the offline tests are in `tests/test_artifacts.py`. Sections 9 and 10 (added
+later the same day) cover findings 1 and 2 of `reviews/2026-10-14-code-review/REVIEW.md`:
+immutable checkpoint identities with evaluation branches, and the migration policy of
+`migrate_wandb_to_hf.py` (tests in `tests/test_migration.py`).
 
 Nothing in these modules touches the network unless tracking is enabled *and* an upload
 function is called; `--manifest-only`, `export_manifest`, `export_build_manifest` and
@@ -167,17 +170,35 @@ manifest.
 ## 6. HF uploads (`ctx/tracking.py`)
 
 - `hf_upload_checkpoint(exp_dir, arm, depth, run_id=None, step=None, with_optimizer=False,
-  extra_tags=(), allow_unbound=False)`: resolve the checkpoint (`--step` or the latest),
-  check the tokenizer binding, build the manifest (hashes the model file), stage
+  extra_tags=(), allow_unbound=False, force_retag=False)`: resolve the checkpoint (`--step` or
+  the latest), check the tokenizer binding, build the manifest (hashes the model file), stage
   `model_<step>.pt` (symlink), `meta_<step>.json`, `tokenizer/`, optimizer shards when
   included, `checkpoint_manifest.json`, `README.md`; upload to `<ns>/ctx_<ARM>_d<DEPTH>_base`
-  with `delete_patterns` so `main` holds exactly one checkpoint, and tag `wandb-<run_id>` +
-  `<exp_tag>`. Older runs stay at their tags. hf_xet progress reporting is unchanged
-  (hub 0.34 and 1.x paths).
+  with `delete_patterns` so `main` holds exactly one checkpoint; tag `wandb-<run_id>` (an
+  identity: if it already exists the upload is refused with `TagConflict` before anything is
+  staged or uploaded, unless `--force-retag`) and label `<exp_tag>` (soft: created once, left
+  in place afterwards). Older runs stay at their tags; see section 9. hf_xet progress
+  reporting is unchanged (hub 0.34 and 1.x paths). The destination may not exist yet (the
+  first upload of an arm or of a replicate tag): `hf_ensure_repo` creates it (`create_repo`,
+  `exist_ok=True`, private per `HF_PRIVATE`) BEFORE the run-tag lookup, which otherwise failed
+  with the Hub's `RepositoryNotFoundError` after a single `list_repo_refs` call (recheck
+  2026-10-14, finding 5). Authentication / permission errors propagate unchanged and nothing
+  is uploaded; `hf_repo_refs(..., missing_ok=True)` returns `None` for an absent repo only
+  where absence is legitimate. `hf_upload_eval` never creates a repo: an absent one means the
+  checkpoint was never archived (`SystemExit`). `migrate_wandb_to_hf.py` creates each
+  collection's repo before its first revision lookup for the same reason. Tests:
+  `tests/test_artifacts.py::test_recheck5_*` (absent repo, existing repo without the tag, tag
+  conflict, auth failure) and `tests/test_migration.py::test_recheck5_*`.
 - `hf_upload_build(exp_dir)`: refresh the gz, write the build manifest, upload `probe_sets/`,
   `build_summary.json`, `manifest.csv.gz`, `manifest.csv.sha256`, `shard_hashes.json`,
   `exposure/` (when present) and `build_manifest.json` to `<ns>/ctx_experiment_build/<exp_tag>/`,
-  tag `<exp_tag>`. The README lists arms C, R, X and E.
+  label `<exp_tag>` (soft: the first upload of a build creates it; the later per-arm uploads
+  of the same build land on `main` without moving it). The README lists arms C, R, X and E.
+- `hf_upload_eval(repo_id, files, run_id, expected_model_sha256, ...)`: evaluation outputs go to
+  the branch `eval/wandb-<run_id>` after the archived checkpoint has been verified against the
+  sha256 the evaluation recorded; section 9.
+- `hf_upload_files(repo_id, files, ...)`: small non-checkpoint uploads to the default branch
+  (analysis folders); its tags are labels, and a `wandb-*` tag is refused with `ValueError`.
 
 ### Optimizer policy
 
@@ -191,12 +212,27 @@ can only be evaluated. The July-2026 archives (`run1-2026-10` tag) contain model
 `run_arm.py` forwards `--init-seed`, `--data-seed` and `--data-loader {bestfit,prepacked}` to
 `scripts.base_train` with exactly those names (only when given; otherwise base_train's
 defaults apply). `build_train_command(...)` is the single place that assembles the command
-(torchrun only with more than one GPU). Before launching, `run_info.json` receives
+(torchrun only with more than one GPU). Before launching, the run_info file receives
 `train_command` (list) / `train_command_str`, `train_cwd`, `train_env` (`NANOCHAT_BASE_DIR`,
-`WANDB_RUN_ID`, `WANDB_TAGS`, `WANDB_NOTES`), `init_seed`, `data_seed`, `data_loader` and
-`code` (`git_commit`, `git_dirty`, `git_branch`, `argv`, `python`), so even a crashed run is
-described. After training, `export_manifest` runs locally before any upload (also with
-`--skip-upload`); `--allow-unbound` is passed through to the upload for legacy checkpoints.
+`WANDB_RUN_ID`, `WANDB_TAGS`, `WANDB_NOTES`), `init_seed`, `data_seed`, `data_loader`,
+`model_tag`, `eval_dir` and `code` (`git_commit`, `git_dirty`, `git_branch`, `argv`, `python`),
+so even a crashed run is described. After training, `export_manifest` runs locally before any
+upload (also with `--skip-upload`); `--allow-unbound` is passed through to the upload for
+legacy checkpoints.
+
+Replicates (recheck 2026-10-14, finding 6): run metadata and evaluation outputs are scoped to
+the model tag. `arm_<A>/run_info.json` belongs to the historical default tag `d<depth>`;
+`arm_<A>/run_info_<tag>.json` to a replicate (`d<depth>_s<S>`) or custom tag
+(`ctx.tracking.run_info_path(exp_dir, arm, tag)`, `read_run_info`, `write_run_info(exp_dir, arm,
+tag, **fields)`, `run_infos(exp_dir, arm)` for all of them; `links.py --exp-dir` lists one row
+per arm and tag). The launcher passes `--out-csv eval/[seed_<S>/]beliefs_arm<A>.csv`
+(`ctx.tracking.eval_output_dir`) to the evaluator, which also uses that layout by default and
+takes the run identity from the checkpoint it scored (`meta_<step>.json` `wandb_run`), then from
+the tag's run_info, `--wandb-run-id` overriding both (`eval/.../beliefs_arm<A>.meta.json`
+`run`). Two seeds launched into one build therefore keep two CSVs, two metas and two run
+identities; launching the same seed twice refuses to overwrite its evaluation.
+`load_artifact_hf.py --model-tag` reads / writes the tag's run_info and archives the tag's
+evaluation directory.
 
 ## 8. Commands
 
@@ -210,6 +246,14 @@ uv run python contextualization/load_artifact_hf.py --exp-dir ~/ctx_experiment_v
     --wandb-run <run_id> [--with-optimizer]
 # legacy checkpoint whose meta has no bindings block
 uv run python contextualization/load_artifact_hf.py --exp-dir /workspace/ctx_experiment_v2 --arm X --allow-unbound
+# the run id already has an archived checkpoint and you really want to replace it (moves wandb-<run_id>)
+uv run python contextualization/load_artifact_hf.py --exp-dir ~/ctx_experiment_v3 --arm C --wandb-run <run_id> --force-retag
+
+# evaluation outputs of a run, next to the checkpoint they scored (branch eval/wandb-<run_id>);
+# the checkpoint sha256 comes from eval/beliefs_armC.meta.json, the record goes to eval/beliefs_armC.upload.json
+uv run python contextualization/load_artifact_hf.py --exp-dir ~/ctx_experiment_v3 --arm C --eval
+uv run python contextualization/load_artifact_hf.py --exp-dir ~/ctx_experiment_v3 --arm C --eval --allow-unverified   # meta without sha256
+uv run python contextualization/load_artifact_hf.py --exp-dir ~/ctx_experiment_v3 --arm C --eval --eval-tag wandb-<run_id>-eval-rescore2
 
 # build metadata (refreshes manifest.csv.gz by content)
 uv run python contextualization/load_artifact_hf.py --exp-dir ~/ctx_experiment_v3 --build
@@ -222,8 +266,8 @@ uv run python contextualization/run_arm.py --arm R --exp-dir ~/ctx_experiment_v3
 uv run python -c "from ctx.basecorpus import resolve_fineweb_revision as r; print(r('main'))"
 uv run python build_dataset.py --out ~/ctx_experiment_v3 --fineweb-revision <sha> ...
 
-# tests (offline; downloads and the Hub are monkeypatched)
-$HOME/.cache/ctx_cpu_venv/bin/python -m pytest contextualization/tests/test_artifacts.py -q
+# tests (offline; downloads, the Hub and wandb are monkeypatched)
+$HOME/.cache/ctx_cpu_venv/bin/python -m pytest contextualization/tests/test_artifacts.py contextualization/tests/test_migration.py -q
 ```
 
 Fetching an archived checkpoint and checking it against its manifest:
@@ -239,3 +283,90 @@ for f in m["files"]:
 print("tokenizer bound:", m["tokenizer_binding"])
 PY
 ```
+
+## 9. Immutable checkpoint identities and evaluation branches (review 2026-10-14, finding 1)
+
+The defect: `hf_upload_dir` deleted and recreated any tag that already existed, and both
+`eval_beliefs.py` and `load_artifact_hf.py --eval` uploaded evaluation CSVs to `main` tagged
+`wandb-<run_id>`. Re-scoring an *old* run therefore moved its tag onto a commit holding the
+weights currently on `main` (a later run) plus the old run's eval
+(`reviews/2026-10-14-code-review/repro/review_root_v2.py`). The broad `except` also treated
+every tagging failure as "tag exists".
+
+Rules now (`ctx/tracking.py`; tests in `tests/test_artifacts.py` against the revision-aware
+`FakeHub`, which models commits, branches, tags, `repo_info(revision=..., files_metadata=True)`,
+`upload_folder(revision=...)`, `create_branch`, `list_repo_refs` and `list_repo_commits`):
+
+| ref | meaning | written by | when it already exists |
+|---|---|---|---|
+| tag `wandb-<run_id>` | identity of the archived weights of one training run | `hf_upload_checkpoint` | refused with `TagConflict` *before* anything is staged or uploaded; `--force-retag` moves it (WARNING printed) |
+| tag `<exp_tag>` (model and dataset repos) | label: the first run / build-metadata upload of that build | `hf_upload_checkpoint` (extra tags), `hf_upload_build`, `hf_upload_files` | left in place with a NOTE ("soft" tag); moved only together with `--force-retag` |
+| branch `eval/wandb-<run_id>` | evaluation outputs of that run; starts at its checkpoint commit | `hf_upload_eval` | reused if its history contains the checkpoint commit and its head still holds the same model bytes; `BranchConflict` / `CheckpointMismatch` otherwise |
+| tag `wandb-<run_id>-eval` | the archived evaluation of that run | `hf_upload_eval` | refused with `TagConflict` before uploading; a re-scoring passes its own tag (`--eval-tag wandb-<run_id>-eval-<label>`) |
+
+- Existence is checked explicitly with `list_repo_refs`; nothing is inferred from exceptions
+  and tagging failures propagate. A tag that already marks exactly the commit being tagged is
+  accepted (identical content produces no new commit). An existing tag is never deleted and
+  recreated behind the caller's back; `retag=True` exists only for `hf_upload_checkpoint`, and
+  only `--force-retag` sets it. A `wandb-*` tag can never be a soft tag (`ValueError`).
+- `hf_upload_eval(repo_id, files, run_id, expected_model_sha256, *, step=None,
+  allow_unverified=False, commit_message="", tag=None) -> dict`: resolves `wandb-<run_id>` to
+  the checkpoint commit (`SystemExit` when the run was never archived); checks with
+  `repo_info(revision=<commit>, files_metadata=True)` that the commit holds `model_*.pt`
+  (`model_<step>.pt` with `step`) whose LFS sha256 equals `expected_model_sha256`, i.e. the
+  `checkpoint.model_sha256` of the evaluation's `.meta.json` (`CheckpointMismatch` otherwise,
+  before anything is uploaded; `SystemExit` when there is no sha256 and `allow_unverified` is
+  not set); creates or checks the branch; commits `files` (`{path_in_repo: local_path}`) to it;
+  tags the commit. Returns `{url, commit_sha, branch, tag, checkpoint_commit, verified, repo_id,
+  run_id, run_tag, model_file, model_sha256, files, uploaded_at}`; `verified` is true only when
+  a sha256 was given and matched. The caller writes the dict next to the CSV as
+  `eval/beliefs_arm<ARM>.upload.json` (`load_artifact_hf.py --eval` does; `eval_beliefs.py`
+  is being switched to this function by its owner).
+- `hf_upload_files` keeps serving non-checkpoint uploads (analysis folders) but refuses `wandb-*`
+  tags with a `ValueError` that points to `hf_upload_eval`.
+- `main` of a model repo holds the latest checkpoint only; evaluations are no longer written to
+  `main` (the `eval/*` delete pattern of checkpoint uploads stays, for repos written before
+  this change).
+- Fetching: `--revision wandb-<run_id>` (weights), `--revision eval/wandb-<run_id>` (weights +
+  `eval/`), `--revision wandb-<run_id>-eval` (the archived evaluation commit).
+- After `--force-retag`, an existing `eval/wandb-<run_id>` branch no longer descends from the
+  new checkpoint commit: the next eval upload stops with `BranchConflict` until that branch is
+  deleted or renamed by hand, deliberately.
+- `links.py --hf` derives a wandb run URL from every `wandb-*` tag name; for `wandb-<run_id>-eval`
+  tags that URL is merely cosmetic (file unchanged). CLAUDE.md section 5 still says that eval
+  uploads move the `wandb-<run_id>` tag; that sentence is obsolete.
+
+## 10. Migration policy (`migrate_wandb_to_hf.py`, review 2026-10-14, finding 2)
+
+The script moved the first run's artifacts in October 2026 (CLAUDE.md section 6: C and R
+checkpoints, the two build versions, tag `run1-2026-10`); the wandb artifacts and backup runs
+it handled are gone, so a real rerun reports `NOT ON WANDB`. The review nevertheless found
+three defects in it, fixed as follows (tests: `tests/test_migration.py`, driven with the shape
+of the review's mocks through `sys.modules`; the review's `repro/review_migration_v2.py` keeps
+running unchanged):
+
+- **Numeric version order**: `version_number("v10") == 10`; `v0 < v9 < v10`, never the string
+  order `v0, v1, v10, v2, v9`.
+- **Every distinct version is preserved**. Models: the versions are uploaded in numeric order
+  as separate commits on `main`, each pinned by the tag `wandb-artifact-<vN>`; `main` ends at
+  the latest version (restored by a content-addressed re-upload when a rerun added an older
+  one on top), which also carries `--tag` (`run1-2026-10`). Datasets: every version is a
+  subfolder `<vN>/`, one commit per newly added version, pinned by `wandb-artifact-<vN>` too.
+  A version whose files are byte-identical to an earlier one (same names, sizes and wandb md5
+  digests) is not uploaded again and is reported as `duplicate of vN`.
+- **Verification at the pinned revision**: every file of a version is checked (size; sha256
+  from the LFS metadata, or the git blob id for plain files) at `repo_info(revision=<its tag>,
+  files_metadata=True)`, also on reruns where the tag already exists (then nothing is uploaded
+  unless the tagged revision does not hold the files; tags are never moved, so a stale tag is
+  reported as `VERIFY FAILED` and blocks deletion). One version's failure (download, upload,
+  verification) is isolated from the others.
+- **Deletion is opt-in and per item**: nothing is deleted by default (`--keep-wandb`); with
+  `--delete-wandb` an artifact version is deleted only when its own destination was verified in
+  this invocation, or when it is a proven duplicate of one that was. A `ctx_<ARM>_d<D>_backup`
+  upload run is mapped to its collection `ctx_<ARM>_d<D>_base` and deleted only when that
+  collection was processed here with every version accounted for: never when `--only`
+  excluded it, never after a verification or download failure.
+- Download cache: `<download-dir>/<collection>/<vN>/`; files of the first migration's layout
+  (`<download-dir>/<collection>/model_*.pt`, `tokenizer/`) are adopted into the version
+  directory (hardlink, else copy) once their size and wandb md5 match, so nothing is fetched
+  twice. The script is importable (`main(argv) -> exit code`) and runnable via `runpy`.

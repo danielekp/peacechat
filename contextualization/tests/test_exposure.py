@@ -401,3 +401,32 @@ def test_legacy_manifest_locator(audit_fixture, small_bpe_tokenizer):
         assert o.claim == (r["claim_char_start"], r["claim_char_end"])
         assert o.value == (r["value_char_start"], r["value_char_end"])
         assert o.subject == (r["subject_char_start"], r["subject_char_end"])
+
+
+# --------------------------------------------------------------------------------------
+# cross-arm report: step agreement and effective exposure are counted separately from row agreement
+
+def test_cross_arm_report_counts_step_disagreement_and_zero_effective(tmp_path):
+    """REVIEW finding 16: identical row ids scheduled at different steps must show up as step
+    disagreement; occurrences without an effective exposure in an arm are counted per arm."""
+    from ctx.exposure import write_exposure_csv
+
+    def row(arm, occ, row_index, step, status="complete", epoch=0):
+        return {"fact_id": "f", "group_id": "g", "arm": arm, "occurrence": occ, "doc_index": 1, "row_index": row_index,
+                "row_offset_start": 0, "row_offset_end": 10, "insert_tok_start": 1, "insert_tok_end": 9,
+                "claim_tok_start": 1, "claim_tok_end": 9, "subject_tok_start": 2, "subject_tok_end": 3,
+                "value_tok_start": 5, "value_tok_end": 6, "status": status, "scored_claim_tokens": 8,
+                "scored_value_tokens": 1, "epoch": epoch, "micro_batch": step, "step": step}
+
+    out = tmp_path / "exposure"
+    write_exposure_csv(out / "R" / "occurrence_exposure.csv", [row("R", 0, 7, 3), row("R", 1, 9, 4)])
+    write_exposure_csv(out / "X" / "occurrence_exposure.csv", [row("X", 0, 7, 5), row("X", 1, 9, -1, status="not_in_horizon")])
+    rep = cross_arm_report(tmp_path, ["R", "X"], out_dir=out, num_iterations=10, extra={"loss_weighting": {"k": 1}})
+    assert rep["n_occurrences"] == 2 and rep["n_present_in_all_arms"] == 2
+    assert rep["n_row_agree"] == 2 and rep["n_step_agree"] == 0, "same rows, different steps: rows agree, steps do not"
+    assert rep["per_arm"]["R"]["n_zero_effective"] == 0 and rep["per_arm"]["X"]["n_zero_effective"] == 1
+    assert rep["per_arm"]["X"]["n_rows_not_in_horizon"] == 1 and rep["per_arm"]["X"]["status_counts"] == {"complete": 1, "not_in_horizon": 1}
+    assert rep["n_all_effective"] == 1 and rep["lost_counts"]["complete_in_R_not_in_X"] == 1
+    assert [e["effective_in_all_arms"] for e in rep["occurrences"]] == [True, False]
+    saved = json.loads((out / "cross_arm.json").read_text())
+    assert saved["loss_weighting"] == {"k": 1} and saved["n_step_agree"] == 0

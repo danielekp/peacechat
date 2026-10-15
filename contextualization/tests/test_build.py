@@ -325,3 +325,346 @@ def test_v1_example_build(v1_build):
     rows = manifest_rows(out)
     assert {r["arm"] for r in rows} == {"C", "R", "X"} and len(rows) == 3 * s["n_occurrences_M"]
     assert all(r["schema_version"] == "2" for r in rows)
+
+
+# --- review 2026-10-14 (second review) findings 9, 10, 13, carrier fit, source pinning ------
+
+def _argv2(out, cache, extra=()):
+    return ["--out", str(out), "--base-source", "synthetic", "--num-groups", "80", "--freq-grid", "1", "4", "16",
+            "--base-chars", "2000000", "--chars-per-shard", "300000", "--seed", "0", "--counterfact-limit", "0",
+            "--no-tracking", "--cache-dir", str(cache), *extra]
+
+
+def _records(p):
+    return [json.loads(x) for x in Path(p).read_text().splitlines()]
+
+
+def test_probes_only_uses_the_original_render_policy(tmp_path):
+    """Finding 9: a rotating-source build cannot be regenerated with --source-per-fact."""
+    import build_dataset
+    from ctx import blend
+    out, cache = tmp_path / "p", tmp_path / "cache"
+    blend.build(build_dataset.parse_args(_argv2(out, cache)))
+    with pytest.raises(SystemExit, match="rendering overrides differ"):
+        blend.build(build_dataset.parse_args(_argv2(out, cache, ["--probes-only", "--source-per-fact"])))
+    with pytest.raises(SystemExit, match="rendering overrides differ"):
+        blend.build(build_dataset.parse_args(_argv2(out, cache, ["--probes-only", "--render-mode", "fixed"])))
+    with pytest.raises(SystemExit, match="embedding-control differs"):
+        blend.build(build_dataset.parse_args(_argv2(out, cache, ["--probes-only", "--embedding-control"])))
+    r = blend.build(build_dataset.parse_args(_argv2(out, cache, ["--probes-only"])))
+    assert r["verified_against_manifest"]
+    assert sum(bool(x["fixed_source"]) for x in _records(out / "probe_sets_regen" / "injected_facts.jsonl")) == 0
+    assert (out / "probe_sets_regen" / "injected_facts.jsonl").read_bytes() == (out / "probe_sets" / "injected_facts.jsonl").read_bytes()
+
+
+def test_overwrite_removes_derived_artifacts_and_foreign_audits_are_refused(tmp_path):
+    """Finding 10: after --overwrite without an audit, no stale novelty labels can leak into
+    regenerated probes; an audit stamped with another build id is refused."""
+    import build_dataset
+    from ctx import blend
+    out, cache = tmp_path / "o", tmp_path / "cache"
+    blend.build(build_dataset.parse_args(_argv2(out, cache, ["--collision-audit"])))
+    (out / "validation_report.json").write_text("{}")
+    (out / "exposure").mkdir()
+    s = blend.build(build_dataset.parse_args(_argv2(out, cache, ["--overwrite"])))
+    assert not (out / "novelty_audit.json").exists() and not (out / "validation_report.json").exists() and not (out / "exposure").exists()
+    assert s["novelty_audit"] is None
+    blend.build(build_dataset.parse_args(_argv2(out, cache, ["--probes-only"])))
+    orig = _records(out / "probe_sets" / "heldout_facts.jsonl")
+    regen = _records(out / "probe_sets_regen" / "heldout_facts.jsonl")
+    assert sum(a["novelty"] != b["novelty"] for a, b in zip(orig, regen)) == 0
+    assert all(x["novelty"] in ("unverified", "real_entity") for x in regen)
+    out2 = tmp_path / "f"
+    blend.build(build_dataset.parse_args(_argv2(out2, cache, ["--collision-audit"])))
+    aud = json.loads((out2 / "novelty_audit.json").read_text())
+    assert aud["build_id"] == json.loads((out2 / "build_summary.json").read_text())["build_id"]
+    aud["build_id"] = "f" * 64
+    (out2 / "novelty_audit.json").write_text(json.dumps(aud))
+    with pytest.raises(SystemExit, match="belongs to another build"):
+        blend.build(build_dataset.parse_args(_argv2(out2, cache, ["--probes-only"])))
+
+
+def test_carrier_first_sentence_never_exceeds_the_budget(tmp_path):
+    import build_dataset
+    from ctx import blend
+    out, cache = tmp_path / "c", tmp_path / "cache"
+    s = blend.build(build_dataset.parse_args(_argv2(out, cache, ["--carrier-max-chars", "150"])))
+    with open(out / "manifest.csv") as fh:
+        mx = max(int(r["carrier_chars"]) for r in csv.DictReader(fh))
+    assert mx <= 150 and "carriers_skipped_too_long" in s
+    assert blend.crop_carrier("A" * 500 + ". Short one.", 100) == (None, True)
+    assert blend.crop_carrier("Short one. " + "B" * 500 + ".", 100) == ("Short one.", True)
+
+
+def test_fixed_mode_build_repeats_one_insert_per_fact_in_every_arm(tmp_path):
+    import build_dataset
+    from ctx import blend
+    out, cache = tmp_path / "x", tmp_path / "cache"
+    s = blend.build(build_dataset.parse_args(_argv2(out, cache, ["--render-mode", "fixed", "--embedding-control"])))
+    per = {}
+    with open(out / "manifest.csv") as fh:
+        for r in csv.DictReader(fh):
+            per.setdefault((r["fact_id"], r["arm"]), set()).add(r["insert_text"])
+    assert max(len(v) for v in per.values()) == 1
+    assert s["xe_diagnostics"]["token_limits_verified"] is False and s["xe_diagnostics"]["within_limits"] is False
+    assert s["xe_diagnostics"]["within_char_limits"] is True
+
+
+def test_fineweb_source_pin_is_recorded_or_required(tmp_path, monkeypatch):
+    """Unpinned FineWeb builds resolve and record the commit (warning); --require-pinned-source
+    refuses a moving ref. (No network: the resolver and downloader are monkeypatched.)"""
+    import build_dataset
+    from ctx import blend, basecorpus
+    monkeypatch.setattr(basecorpus, "resolve_fineweb_revision", lambda rev=None: "a" * 40)
+    out, cache = tmp_path / "fw", tmp_path / "cache"
+    argv = ["--out", str(out), "--base-source", "fineweb", "--num-groups", "8", "--freq-grid", "1", "--base-chars", "1000",
+            "--chars-per-shard", "1000", "--seed", "0", "--counterfact-limit", "0", "--no-tracking", "--cache-dir", str(cache),
+            "--require-pinned-source"]
+    with pytest.raises(SystemExit, match="required by --require-pinned-source"):
+        blend.build(build_dataset.parse_args(argv))
+    assert not (out / "build_summary.json").exists()
+
+
+# --- recheck 2026-10-14: findings 7 (tokenizer required up front), 8 (audit evidence), gaps 1-3 ----
+
+def _no_build_output(out, cache):
+    """Nothing of a build was written: no staging / arm / probe dirs or build artifacts under out,
+    and the base-corpus cache was never populated."""
+    if out.exists():
+        written = [p.name for p in out.iterdir()
+                   if p.name.startswith(("arm_", "probe_sets", blend.STAGING_DIR)) or p.name in blend.BUILD_ARTIFACTS]
+        assert not written, written
+    assert not cache.exists() or not any(cache.rglob("*")), list(cache.rglob("*"))
+
+
+def test_unusable_tokenizer_src_stops_the_build_before_anything_is_written(tmp_path):
+    """Recheck finding 7: a --tokenizer-src that cannot be loaded (corrupt pickle, missing file, no
+    tokenizer/ dir) is a SystemExit at the START of build(): no base cache, no staging, no arm dirs."""
+    import build_dataset
+    from ctx import blend
+    from ctx.tokenizers import TokenizerUnavailable
+    out, cache = tmp_path / "b", tmp_path / "cache"
+    src = tmp_path / "tok"
+    (src / "tokenizer").mkdir(parents=True)
+    pkl = src / "tokenizer" / "tokenizer.pkl"
+    pkl.write_bytes(b"\x80\x04this is not a pickled tiktoken Encoding")
+    with pytest.raises(SystemExit, match=r"--tokenizer-src .* is unusable: unreadable tokenizer\.pkl"):
+        blend.build(build_dataset.parse_args(_argv2(out, cache, ["--embedding-control", "--tokenizer-src", str(src)])))
+    _no_build_output(out, cache)
+    pkl.unlink()
+    with pytest.raises(SystemExit, match=r"is unusable: no tokenizer\.pkl under"):
+        blend.build(build_dataset.parse_args(_argv2(out, cache, ["--tokenizer-src", str(src)])))
+    _no_build_output(out, cache)
+    (tmp_path / "empty").mkdir()
+    with pytest.raises(SystemExit, match="no tokenizer/ directory"):
+        blend.build(build_dataset.parse_args(_argv2(out, cache, ["--tokenizer-src", str(tmp_path / "empty")])))
+    _no_build_output(out, cache)
+    # an existing build is not touched either, even with --overwrite, when the tokenizer is unusable
+    pkl.write_bytes(b"garbage")
+    s = blend.build(build_dataset.parse_args(_argv2(out, cache)))
+    before = {a: disk_hashes(out, a) for a in "CRX"}
+    with pytest.raises(SystemExit, match="is unusable"):
+        blend.build(build_dataset.parse_args(_argv2(out, cache, ["--overwrite", "--tokenizer-src", str(src)])))
+    assert {a: disk_hashes(out, a) for a in "CRX"} == before and (out / "BUILD_COMPLETE.json").exists()
+    assert s["match_tokenizer"] is None
+    # the thin wrapper raises the dedicated exception instead of returning None
+    with pytest.raises(TokenizerUnavailable, match="unreadable"):
+        blend.load_match_tokenizer(src)
+
+
+def test_build_with_tokenizer_records_loader_vocab_mode_and_enforces_claim_start_tokens(tmp_path, small_bpe_tokenizer, capsys):
+    """A build with --tokenizer-src records how the tokenizer was loaded, its TRUE vocabulary and the
+    selected limit mode; xe_diagnostics carries the limits version and the claim-start token deltas."""
+    import build_dataset
+    from ctx import blend
+    from ctx import templates as T
+    src = tmp_path / "tok"
+    small_bpe_tokenizer.save(str(src / "tokenizer"))
+    out, cache = tmp_path / "t", tmp_path / "cache"
+    s = blend.build(build_dataset.parse_args(_argv2(out, cache, ["--embedding-control", "--tokenizer-src", str(src)])))
+    printed = capsys.readouterr().out
+    assert "loaded via nanochat.tokenizer.RustBPETokenizer; vocab 768; X/E token limit mode relative" in printed
+    assert s["match_tokenizer"] == {"src": str(src), "loaded_via": "nanochat.tokenizer.RustBPETokenizer", "vocab": 768,
+                                    "token_limit_mode": "relative"}
+    xe = s["xe_diagnostics"]
+    assert xe["limits_version"] == T.XE_MATCH_LIMITS_VERSION and xe["tokenizer_vocab"] == 768
+    assert xe["token_limit_mode"] == "relative (toy tokenizer)" and xe["token_limits_verified"] is True
+    assert 0 <= xe["max_abs_delta_claim_tok_start_frac"] <= T.XE_MATCH_LIMITS["max_abs_delta_tokens_frac"]
+    assert xe["max_abs_delta_claim_tok_start"] >= xe["mean_abs_delta_claim_tok_start"] >= 0
+    assert xe["within_token_limits"] is True and xe["within_limits"] is True
+    assert summary_of(out)["match_tokenizer"] == s["match_tokenizer"]
+    # a v2 build with arm E and no tokenizer warns loudly at the start (and stays unverified)
+    s2 = blend.build(build_dataset.parse_args(_argv2(tmp_path / "notok", cache, ["--embedding-control"])))
+    assert "WARNING  no --tokenizer-src" in capsys.readouterr().out
+    assert s2["match_tokenizer"] is None and s2["xe_diagnostics"]["token_limits_verified"] is False
+
+
+def test_summary_carries_design_cells_and_the_limits_version(v2_e):
+    """Gaps 1 + 3: build_summary.json records the planned design cells (including empty ones) and the
+    version of the frozen X/E limits it was matched against."""
+    from ctx import templates as T
+    out, s = v2_e
+    assert s["xe_diagnostics"]["limits_version"] == T.XE_MATCH_LIMITS_VERSION == "2026-10-14.1"
+    assert s["xe_diagnostics"]["limits"] == T.XE_MATCH_LIMITS
+    assert summary_of(out)["xe_diagnostics"]["limits_version"] == "2026-10-14.1"
+    dc = summary_of(out)["design_cells"]
+    assert dc["grid"] == [1, 4, 16]
+    assert all(set(row) == {"1", "4", "16"} for row in dc["cells"].values())
+    assert sum(n for row in dc["cells"].values() for n in row.values()) == s["counts"]["training_groups"]
+    assert dc["empty_cells"] == [[st, d] for st, row in dc["cells"].items() for d, n in row.items() if n == 0]
+    assert all(k.endswith("|real") and {"true", "false"} <= set(v) or not k.endswith("|real") for k, v in dc["label_counts"].items())
+    assert sum(sum(v.values()) for v in dc["label_counts"].values()) == s["counts"]["training_groups"]
+
+
+def test_design_cells_list_empty_cells_when_the_grid_has_more_doses_than_a_stratum_has_groups(tmp_path):
+    import build_dataset
+    from collections import Counter
+    from ctx import blend
+    out, cache = tmp_path / "d", tmp_path / "cache"
+    s = blend.build(build_dataset.parse_args(_argv2(out, cache, ["--num-groups", "24", "--freq-grid", "1", "2", "4", "8", "16"])))
+    dc = summary_of(out)["design_cells"]
+    assert dc["grid"] == [1, 2, 4, 8, 16] and dc["empty_cells"]
+    inj = _records(out / "probe_sets" / "injected_facts.jsonl")
+    assert sum(n for row in dc["cells"].values() for n in row.values()) == s["counts"]["training_groups"] == len(inj)
+    for st, d in dc["empty_cells"]:
+        assert dc["cells"][st][d] == 0
+    by_dose = Counter(str(r["assigned_frequency"]) for r in inj)
+    assert {d: sum(row[d] for row in dc["cells"].values()) for d in map(str, dc["grid"])} == \
+        {d: by_dose.get(d, 0) for d in map(str, dc["grid"])}
+    assert all(len(row) == 5 for row in dc["cells"].values())
+
+
+def _build_with_audit(tmp_path, name="a"):
+    import build_dataset
+    from ctx import blend
+    out, cache = tmp_path / name, tmp_path / "cache"
+    s = blend.build(build_dataset.parse_args(_argv2(out, cache, ["--collision-audit", "--embedding-control"])))
+    return out, cache, s
+
+
+def _probes_only(out, cache, extra=()):
+    import build_dataset
+    from ctx import blend
+    return blend.build(build_dataset.parse_args(_argv2(out, cache, ["--probes-only", "--embedding-control", *extra])))
+
+
+def test_probes_only_restores_novelty_labels_from_the_embedded_audit_when_the_file_is_missing(tmp_path, capsys):
+    """Recheck finding 8: build_summary.json embeds the audit; without novelty_audit.json the labels come
+    from there (the NOTE names the evidence) and every label is reproduced, verified against the originals."""
+    out, cache, s = _build_with_audit(tmp_path)
+    assert isinstance(s["novelty_audit"]["hits"], dict) and s["novelty"]["audited_absent"] > 0
+    (out / "novelty_audit.json").unlink()
+    r = _probes_only(out, cache)
+    printed = capsys.readouterr().out
+    assert "novelty_audit.json missing; novelty labels restored from the audit embedded in build_summary.json" in printed
+    assert r["verified_against_manifest"] is True and r["verified_against_probe_files"] is True
+    assert r["novelty_evidence"] == "build_summary.json embedded novelty_audit (novelty_audit.json missing)"
+    assert r["probe_files_compared"] == ["heldout_facts.jsonl", "injected_facts.jsonl"]
+    for n in ("injected_facts.jsonl", "heldout_facts.jsonl"):
+        assert (out / "probe_sets_regen" / n).read_bytes() == (out / "probe_sets" / n).read_bytes(), n
+    orig = _records(out / "probe_sets" / "heldout_facts.jsonl")
+    regen = _records(out / "probe_sets_regen" / "heldout_facts.jsonl")
+    assert sum(a["novelty"] != b["novelty"] for a, b in zip(orig, regen)) == 0
+    assert sum(x["novelty"] == "audited_absent" for x in regen) > 0 and not any(x["novelty"] == "unverified" for x in regen)
+    meta = json.loads((out / "probe_sets_regen" / "PROBES_META.json").read_text())
+    assert meta["verified_against_probe_files"] is True and meta["novelty_evidence"] == r["novelty_evidence"]
+    assert meta["probe_files_compared"] == ["heldout_facts.jsonl", "injected_facts.jsonl"]
+
+
+def test_probes_only_refuses_audit_evidence_that_is_missing_or_inconsistent(tmp_path):
+    """Recheck finding 8: no usable hits, a file that contradicts the embedded audit, or an audit
+    without this build's build_id -> SystemExit (nothing written); legacy summaries stay lenient."""
+    out, cache, s = _build_with_audit(tmp_path)
+    summary_path, audit_path = out / "build_summary.json", out / "novelty_audit.json"
+    original_summary, original_audit = summary_path.read_text(), audit_path.read_text()
+    # (1) the summary records the audit but without hits, and there is no file
+    summ = json.loads(original_summary)
+    del summ["novelty_audit"]["hits"]
+    summary_path.write_text(json.dumps(summ))
+    audit_path.unlink()
+    with pytest.raises(SystemExit, match="no usable hits"):
+        _probes_only(out, cache)
+    assert not (out / "probe_sets_regen").exists() and not (out / "probe_sets_regen.tmp").exists()
+    # (2) the file exists but its hits disagree with the embedded audit
+    summary_path.write_text(original_summary)
+    aud = json.loads(original_audit)
+    aud["hits"] = dict(aud["hits"], tamperedstring=3)
+    audit_path.write_text(json.dumps(aud))
+    with pytest.raises(SystemExit, match="disagrees with the audit embedded in build_summary.json"):
+        _probes_only(out, cache)
+    # (3) the summary carries build_id but the audits do not: refused, file present or not
+    aud = json.loads(original_audit)
+    del aud["build_id"]
+    audit_path.write_text(json.dumps(aud))
+    summ = json.loads(original_summary)
+    del summ["novelty_audit"]["build_id"]
+    summary_path.write_text(json.dumps(summ))
+    with pytest.raises(SystemExit, match="belongs to another build"):
+        _probes_only(out, cache)
+    audit_path.unlink()
+    with pytest.raises(SystemExit, match="carries build_id None, not this build's"):
+        _probes_only(out, cache)
+    assert not (out / "probe_sets_regen").exists()
+    # (4) a legacy summary without build_id keeps the lenient behaviour (NOTE) and regenerates
+    summ = json.loads(original_summary)
+    del summ["build_id"]
+    summary_path.write_text(json.dumps(summ))
+    audit_path.write_text(original_audit)
+    r = _probes_only(out, cache)
+    assert r["novelty_evidence"].startswith("novelty_audit.json") and r["verified_against_probe_files"] is True
+    assert (out / "probe_sets_regen" / "heldout_facts.jsonl").read_bytes() == (out / "probe_sets" / "heldout_facts.jsonl").read_bytes()
+
+
+def test_probes_only_regenerates_identically_from_a_copied_archive_set(tmp_path):
+    """The archived set (summary, manifest, probe sets, marker, audit) copied WITHOUT any arm_* shards
+    regenerates byte-identical probe records and verifies them against the originals."""
+    import shutil
+    out, cache, s = _build_with_audit(tmp_path)
+    arch = tmp_path / "archive"
+    arch.mkdir()
+    for n in ("build_summary.json", "manifest.csv", "BUILD_COMPLETE.json", "novelty_audit.json"):
+        shutil.copy2(out / n, arch / n)
+    shutil.copytree(out / "probe_sets", arch / "probe_sets")
+    assert not list(arch.glob("arm_*"))
+    r = _probes_only(arch, cache)
+    assert r["verified_against_manifest"] is True and r["verified_against_probe_files"] is True
+    assert r["novelty_evidence"] == "novelty_audit.json (agrees with the audit embedded in build_summary.json)"
+    for n in ("injected_facts.jsonl", "heldout_facts.jsonl"):
+        assert (arch / "probe_sets_regen" / n).read_bytes() == (out / "probe_sets" / n).read_bytes(), n
+        assert _records(arch / "probe_sets_regen" / n) == _records(out / "probe_sets" / n)
+
+
+def test_probes_only_catches_tampered_audit_evidence_through_the_original_probe_files(tmp_path, capsys):
+    """One hit added to the embedded audit (file deleted) flips a held-out novel group's label; the
+    regenerated records then differ from the build's original probe files -> SystemExit naming the
+    records, verified_against_probe_files=False, nothing written. A probe file that is no longer the
+    marker's original is not evidence (NOTE) and the outcome is recorded as None."""
+    out, cache, s = _build_with_audit(tmp_path)
+    (out / "novelty_audit.json").unlink()
+    held = _records(out / "probe_sets" / "heldout_facts.jsonl")
+    victim = next(x for x in held if x["split"] == "heldout_group" and x["entity_tier"] == "novel"
+                  and x["novelty"] == "audited_absent")
+    summ = json.loads((out / "build_summary.json").read_text())
+    summ["novelty_audit"]["hits"][victim["subject"]] = 1
+    (out / "build_summary.json").write_text(json.dumps(summ))
+    with pytest.raises(SystemExit) as ei:
+        _probes_only(out, cache)
+    msg = str(ei.value)
+    assert "differ from the build's original probe files" in msg and "verified_against_probe_files=False" in msg
+    assert f"({victim['fact_id']}, novelty, 'audited_absent', 'audited_present')" in msg
+    assert "nothing was written" in msg
+    assert not (out / "probe_sets_regen").exists() and not (out / "probe_sets_regen.tmp").exists()
+    # the held-out file is no longer the build's original -> it is not used as evidence; the injected
+    # file (unaffected by a held-out group) still verifies, the outcome is None, and the tampered
+    # label now goes through: that is exactly why the originals and the marker are kept
+    p = out / "probe_sets" / "heldout_facts.jsonl"
+    p.write_text(p.read_text() + "\n")
+    capsys.readouterr()
+    r = _probes_only(out, cache)
+    printed = capsys.readouterr().out
+    assert "probe_sets/heldout_facts.jsonl is not the build's original" in printed
+    assert r["verified_against_probe_files"] is None and r["probe_files_compared"] == ["injected_facts.jsonl"]
+    regen = {x["fact_id"]: x for x in _records(out / "probe_sets_regen" / "heldout_facts.jsonl")}
+    assert regen[victim["fact_id"]]["novelty"] == "audited_present"
+    meta = json.loads((out / "probe_sets_regen" / "PROBES_META.json").read_text())
+    assert meta["verified_against_probe_files"] is None and meta["probe_files_compared"] == ["injected_facts.jsonl"]

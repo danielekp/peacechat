@@ -132,3 +132,62 @@ def test_v2_statements_render_with_spans(pool):
         s, e = ins[arm].spans["value"][0]
         assert ins[arm].text[s:e] in (c.value, c.value[0].lower() + c.value[1:])
     assert c.heldout_paraphrase not in [ins["R"].text[s:e] for s, e in ins["R"].spans["claim"]]
+
+
+# --- review 2026-10-14 (second review) findings 11 and 14 -----------------------------------
+
+def test_grounded_labels_balanced_and_remainders_spread_over_seeds():
+    """Finding 11: real strata inject true and false statements in equal numbers (+-1) for every
+    seed, planned cells are reported with explicit zeros, and dose remainders do not always
+    land on the lowest doses."""
+    extra = Counter()
+    for seed in range(8):
+        groups = F2.build_semantic_pool(600, seed)
+        train, held = F2.split_groups(groups, 0.3, seed)
+        F2.assign_injection(train, [1, 4, 16, 64, 256], seed)
+        real = [g for g in train if g.entity_tier == "real"]
+        for rel in {g.relation for g in real}:
+            c = Counter(g.injected.truth_value for g in real if g.relation == rel)
+            assert abs(c.get("true", 0) - c.get("false", 0)) <= 1, (seed, rel, c)
+        cells = F2.design_cells(train, [1, 4, 16, 64, 256])
+        assert cells["grid"] == [1, 4, 16, 64, 256]
+        for st, row in cells["cells"].items():
+            assert set(row) == {"1", "4", "16", "64", "256"}  # every dose listed, zeros included
+            vals = list(row.values())
+            if max(vals) > min(vals):
+                for d, n in row.items():
+                    if n == max(vals):
+                        extra[d] += 1
+        for key, labs in cells["label_counts"].items():
+            if key.endswith("|real"):
+                assert "true" in labs and "false" in labs
+    assert extra["1"] < 0.5 * sum(extra.values())  # remainders are not systematically the lowest dose
+    assert len(extra) >= 4
+
+
+def test_seed4_element_symbol_stratum_has_both_labels():
+    groups = F2.build_semantic_pool(600, 4)
+    train, held = F2.split_groups(groups, 0.3, 4)
+    F2.assign_injection(train, [1, 4, 16, 64, 256], 4)
+    c = Counter(g.injected.truth_value for g in train if g.entity_tier == "real" and g.relation == "element_symbol")
+    assert c["true"] >= 1 and c["false"] >= 1 and abs(c["true"] - c["false"]) <= 1
+
+
+def test_competing_design_reports_the_other_candidates_dose():
+    """Finding 14: rival_assigned_frequency is resolved through rival_fact_id, reciprocally."""
+    groups = F2.build_semantic_pool(8, 2026)
+    train, held = F2.split_groups(groups, 0, 2026)
+    F2.assign_injection(train, [1], 2026, design="competing", rival_grid=[4])
+    inj, _ = F2.to_probe_records(train, held, ["R", "X", "E"])
+    by = {r["fact_id"]: r for r in inj}
+    assert inj
+    for r in inj:
+        assert r["rival_assigned_frequency"] == by[r["rival_fact_id"]]["assigned_frequency"]
+    # one-sided design: the unasserted rival reports the injected partner's dose, injected reports 0
+    g2 = F2.build_semantic_pool(20, 3)
+    t2, h2 = F2.split_groups(g2, 0.2, 3)
+    F2.assign_injection(t2, [1, 4], 3)
+    i2, held2 = F2.to_probe_records(t2, h2, ["R"])
+    b2 = {r["fact_id"]: r for r in i2 + held2}
+    for r in i2:
+        assert r["rival_assigned_frequency"] == 0 and b2[r["rival_fact_id"]]["rival_assigned_frequency"] == r["assigned_frequency"]

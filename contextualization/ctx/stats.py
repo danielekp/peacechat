@@ -11,8 +11,15 @@ Contents
   cluster_bootstrap            percentile bootstrap of a mean, resampling semantic groups
   holm                         Holm step-down adjustment within one prespecified family
   tost_equivalence             two one-sided tests from a 90% bootstrap interval
-  paired_cell                  everything the paired tables need for one cell
+  paired_cell                  everything the paired tables need for one cell; the Wilcoxon test
+                               is run on GROUP-level mean differences whenever a semantic group
+                               contributes more than one fact (review 2026-10-14 finding 18)
   summarize_replicates         mean / SD / n over per-replicate statistics
+
+Within-run versus between-run uncertainty: every interval and p-value here describes the
+sampling of facts / semantic groups inside ONE training run per arm. Uncertainty between
+training runs (initialization / data-order seeds) is a separate quantity that only replicates
+measure (`summarize_replicates`); nothing here pools facts across replicates.
 """
 
 from __future__ import annotations
@@ -192,22 +199,57 @@ def tost_equivalence(ci90_lo, ci90_hi, margin: float) -> dict:
 # --------------------------------------------------------------------------------------
 # one cell of a paired table
 
+def group_mean_differences(diffs, groups) -> list:
+    """One value per semantic group: the mean of the paired differences of the group's facts,
+    in first-appearance order of the groups. This is the unit the cluster-aware Wilcoxon test
+    ranks when a group contributes more than one fact."""
+    sums, counts, order = {}, {}, []
+    for x, g in zip(diffs, groups):
+        g = str(g)
+        if g not in sums:
+            sums[g], counts[g] = 0.0, 0
+            order.append(g)
+        sums[g] += float(x)
+        counts[g] += 1
+    return [sums[g] / counts[g] for g in order]
+
+
 def paired_cell(diffs, groups, n_boot: int = DEFAULT_BOOTSTRAP, seed: int = DEFAULT_SEED, stream=(),
                 margin: float | None = None) -> dict:
-    """All per-cell statistics of paired per-fact differences: n, n_groups, mean, SD, the
-    cluster-bootstrap 95% (and 90%) interval, the two-sided Wilcoxon p (None below 10 non-zero
-    differences) and, when ``margin`` is given, the TOST verdict. Holm adjustment is applied by
-    the caller across the family's cells (see ``holm``)."""
+    """All per-cell statistics of paired per-fact differences: n, n_groups, mean, SD, mean |d|,
+    the cluster-bootstrap 95% (and 90%) interval, the two-sided Wilcoxon p and, when ``margin``
+    is given, the TOST verdict. Holm adjustment is applied by the caller across the family's
+    cells (see ``holm``).
+
+    Cluster-aware test (review 2026-10-14 finding 18): ordinary Wilcoxon assumes independent
+    observations, which facts sharing a semantic group are not. When every group contributes
+    exactly one fact (``n_groups == n``) the test ranks the per-fact differences and
+    ``p_wilcoxon_level == "fact"``; when any group contributes more than one fact the test
+    ranks ONE value per group -- the group's mean difference (``group_mean_differences``) --
+    and ``p_wilcoxon_level == "group"`` (``n_wilcoxon`` is then the number of groups). The
+    naive per-fact p is exposed as ``p_wilcoxon_fact`` only when it coincides with the test
+    actually used (one fact per group); otherwise it is ``None`` rather than a number that
+    overstates the evidence. ``None`` p-values mean "below 10 non-zero values at that level".
+    Between-training-run uncertainty is a separate matter (see the module docstring)."""
     d = np.asarray(list(diffs), dtype=float)
-    boot = cluster_bootstrap(d, groups, n_boot=n_boot, seed=seed, stream=stream)
+    grp = [str(g) for g in groups]
+    boot = cluster_bootstrap(d, grp, n_boot=n_boot, seed=seed, stream=stream)
+    if boot.n_groups == d.size:
+        level, test_values = "fact", d
+    else:
+        level, test_values = "group", np.asarray(group_mean_differences(d, grp), dtype=float)
+    p = wilcoxon_signed_rank(test_values)
     out = {
         "n": int(d.size), "n_groups": boot.n_groups,
         "mean_diff": float(d.mean()) if d.size else float("nan"),
         "sd_diff": float(d.std(ddof=1)) if d.size > 1 else float("nan"),
+        "mean_abs_diff": float(np.abs(d).mean()) if d.size else float("nan"),
         "n_nonzero": int(np.count_nonzero(d)),
         "ci95_lo": boot.ci95_lo, "ci95_hi": boot.ci95_hi, "ci90_lo": boot.ci90_lo, "ci90_hi": boot.ci90_hi,
         "boot_se": boot.se, "n_boot": boot.n_boot,
-        "p_wilcoxon": wilcoxon_signed_rank(d),
+        "p_wilcoxon": p, "p_wilcoxon_level": level,
+        "n_wilcoxon": int(np.count_nonzero(test_values)),
+        "p_wilcoxon_fact": p if level == "fact" else None,
     }
     if margin is not None:
         t = tost_equivalence(boot.ci90_lo, boot.ci90_hi, margin)

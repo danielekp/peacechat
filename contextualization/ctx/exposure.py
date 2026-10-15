@@ -809,9 +809,13 @@ def audit_arm(exp_dir, arm, tokenizer, *, B, T, grad_accum_steps, num_iterations
     return summary
 
 
-def cross_arm_report(exp_dir, arms, *, out_dir=None, num_iterations=None) -> dict:
+def cross_arm_report(exp_dir, arms, *, out_dir=None, num_iterations=None, extra=None) -> dict:
     """Compare ``exposure/<arm>/occurrence_exposure.csv`` across arms: per occurrence the status in
-    every arm and whether step/row agree; counts of (status in A, status in B) pairs."""
+    every arm and whether step/row agree; counts of (status in A, status in B) pairs; per arm the
+    status counts, the number of occurrences without an effective exposure (no ``complete`` row
+    with ``step < num_iterations``) and the ``not_in_horizon`` rows (dropped epoch tails);
+    ``n_all_effective`` = occurrences effective in EVERY arm. ``extra`` (a dict) is merged into the
+    report written to ``cross_arm.json`` (the prepacked audit adds its ``loss_weighting`` block)."""
     exp_dir = Path(exp_dir)
     out_dir = Path(out_dir) if out_dir else exp_dir / "exposure"
     per_arm = {}
@@ -824,7 +828,15 @@ def cross_arm_report(exp_dir, arms, *, out_dir=None, num_iterations=None) -> dic
     keys = sorted(set().union(*[set(d) for d in per_arm.values()]))
     occurrences = []
     pair_counts = {}
-    agree_step = agree_row = n_all_have = 0
+    agree_step = agree_row = n_all_have = n_all_effective = 0
+    arm_summary = {a: {"n_occurrences": len(per_arm[a]), "status_counts": {}, "n_zero_effective": 0,
+                       "n_rows_not_in_horizon": 0, "n_rows": sum(len(v) for v in per_arm[a].values())} for a in arms}
+    for a in arms:
+        for rs in per_arm[a].values():
+            for r in rs:
+                arm_summary[a]["status_counts"][r["status"]] = arm_summary[a]["status_counts"].get(r["status"], 0) + 1
+                if r["status"] == "not_in_horizon":
+                    arm_summary[a]["n_rows_not_in_horizon"] += 1
     for k in keys:
         entry = {"fact_id": k[0], "occurrence": k[1], "arms": {}}
         for a in arms:
@@ -836,6 +848,8 @@ def cross_arm_report(exp_dir, arms, *, out_dir=None, num_iterations=None) -> dic
                 "steps": [r["step"] for r in rs], "rows": [r["row_index"] for r in rs],
                 "effective_exposures": len(eff),
                 "first_status": rs[0]["status"] if rs else "missing"}
+            if not eff:
+                arm_summary[a]["n_zero_effective"] += 1
         present = [a for a in arms if per_arm[a].get(k)]
         if len(present) == len(arms):
             n_all_have += 1
@@ -847,6 +861,8 @@ def cross_arm_report(exp_dir, arms, *, out_dir=None, num_iterations=None) -> dic
             agree_row += entry["row_agree"]
         else:
             entry["step_agree"] = entry["row_agree"] = False
+        entry["effective_in_all_arms"] = all(entry["arms"][a]["effective_exposures"] > 0 for a in arms)
+        n_all_effective += entry["effective_in_all_arms"]
         for i, a in enumerate(arms):
             for b in arms[i + 1:]:
                 sa, sb = entry["arms"][a]["first_status"], entry["arms"][b]["first_status"]
@@ -863,7 +879,12 @@ def cross_arm_report(exp_dir, arms, *, out_dir=None, num_iterations=None) -> dic
                 if e["arms"][a]["effective_exposures"] > 0 and e["arms"][b]["effective_exposures"] == 0)
     report = {"schema_version": EXPOSURE_SCHEMA, "arms": list(arms), "n_occurrences": len(keys),
               "n_present_in_all_arms": n_all_have, "n_step_agree": agree_step, "n_row_agree": agree_row,
-              "status_pairs": pair_counts, "lost_counts": lost, "occurrences": occurrences}
+              "n_all_effective": n_all_effective, "num_iterations": num_iterations, "per_arm": arm_summary,
+              "status_pairs": pair_counts, "lost_counts": lost}
+    if extra:
+        for k, v in extra.items():
+            report[k] = v
+    report["occurrences"] = occurrences
     with open(out_dir / "cross_arm.json", "w") as fh:
         json.dump(report, fh, indent=2)
     return report

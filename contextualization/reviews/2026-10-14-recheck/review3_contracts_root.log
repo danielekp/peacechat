@@ -1,0 +1,7 @@
+MIXED MODES: ok True mock False modes ['dry_run_mock_scores', 'model_inference']
+TABLE replicates__dose_response.csv sample [{'cohort': 'all_injected', 'pass': 'cloze_neutral', 'metric': 'answer_plus_suffix', 'tier': 'all', 'arm': 'C', 'label': 'false', 'dose': '1', 'n_replicates': '2', 'mean_of_means': '0.0', 'sd_across_replicates': '0.0'}]
+TABLE replicates__paired.csv sample [{'contrast': 'R-C', 'cohort': 'all_injected', 'pass': 'cloze_neutral', 'metric': 'answer_plus_suffix', 'tier': 'all', 'label': 'all', 'dose': 'all', 'n_replicates': '2', 'mean_of_mean_diff': '11.0', 'sd_across_replicates': '12.727922061357855', 'min': '2.0', 'max': '20.0', 'n_per_replicate': '22/22'}]
+WRONG PROBES: compatibility True csv dose [1] reported doses ['256']
+DIFFERENT PROMPTS: compatibility True violations []
+DIFFERENT INIT AND HORIZON: compatibility True violations []
+ROOT /tmp/ctx-third-contracts-u4gliwdx

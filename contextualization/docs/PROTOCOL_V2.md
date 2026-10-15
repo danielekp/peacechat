@@ -99,12 +99,29 @@ operational safeguards in `ARTIFACTS.md`; exposure accounting in `EXPOSURE.md`; 
   the claim as a `that`-clause (or after a colon for the quote-style wrappers), contains a year,
   no source entity, no document type, no attribution verb, and no permanence / consensus /
   credibility assertion. A discourse-adverbial `{filler}` is chosen per occurrence so that the
-  E insert matches the X insert in character length and claim start. Measured criteria
-  (`templates.XE_MATCH_LIMITS`, enforced by `validate.py` and reported in
-  `build_summary.json["xe_diagnostics"]`): per-occurrence |delta chars| <= 12 and |delta claim
-  start| <= 12, mean <= 4; token deltas <= 8 (mean <= 3) when a tokenizer is present; no source
-  cue in any E frame. On the smoke builds the realized mean |delta chars| is ~1.7 (max 6).
-  `xe_examples.txt` lists reviewable X/E pairs.
+  E insert matches the X insert in token length, claim start and character length. Measured
+  criteria (`templates.XE_MATCH_LIMITS`, enforced by `validate.py` and reported in
+  `build_summary.json["xe_diagnostics"]`): tokens are primary (per-occurrence |delta tokens| <= 8,
+  mean <= 3, |delta claim-start tokens| <= 8 with an experiment-scale tokenizer), characters
+  secondary (|delta chars| <= 12, mean <= 6; |delta claim start| <= 16 chars); no source cue in
+  any E frame. `xe_examples.txt` lists reviewable X/E pairs.
+* **Frozen limits (recheck 2026-10-14).** The X/E limits are a frozen protocol choice identified
+  by `templates.XE_MATCH_LIMITS_VERSION` (currently `"2026-10-14.1"`); every build records it in
+  `build_summary.json["xe_diagnostics"]["limits_version"]` and the validator writes it into the
+  numbers of checks `8.token_length` / `8.claim_tok_start` / `9.tokenizer_load`. Any change to a
+  value or a rule bumps the version. The limit *mode* is selected in one place
+  (`ctx.tokenizers.token_limit_mode`): the absolute token limits apply to experiment-scale
+  tokenizers (vocabulary >= 16,384, e.g. the 32,768-token nanochat tokenizer) and whenever the
+  vocabulary is unknown; the relative limits (fractions of the X insert's token length) apply only
+  to a *known* toy vocabulary below that threshold. Besides the token-length deltas, the
+  claim-start position is matched in tokens: `claim_tok_start` is the number of tokens of the
+  insert text before the claim span (the validator recomputes it from the manifest's
+  `insert_char_start` / `claim_char_start`); in absolute mode `max |claim_tok_start_E -
+  claim_tok_start_X| <= max_abs_delta_claim_tok_start` (8), in relative mode each occurrence must
+  satisfy `|delta_claim_tok_start| / tok(X) <= max_abs_delta_tokens_frac` (0.20). A v2 build with
+  arm E needs `--tokenizer-src`: the tokenizer is loaded and validated before anything is
+  downloaded or written, and an unusable one stops the build. Measured on the 2,500-group
+  seed-1234 pool with the July tokenizer: |dtok| max 8 / mean 1.1, |dchars| max 12 / mean 2.5.
 * **What E does and does not identify.** E and X still differ in named entities (none in E),
   document-type nouns, verbs vs discourse adverbials, and the lexical content of the filler.
   E is an informative comparator for "embedding/length/position without attribution"; it does

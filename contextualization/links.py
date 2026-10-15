@@ -40,19 +40,21 @@ def from_wandb(run_filter):
 
 
 def from_exp_dir(exp_dir):
+    """One row per arm AND model tag (arm_<A>/run_info.json + run_info_<tag>.json: replicates keep
+    their own run identity, recheck finding 6)."""
     rows = []
     for arm in "CRXE":
-        info = T.read_run_info(exp_dir, arm)
-        if not info:
-            continue
-        rid = info.get("wandb_run_id")
-        rows.append({
-            "run": f"{info.get('wandb_run_name')} ({rid})", "url": T.wandb_run_url(rid) if rid else "-",
-            "tags": f"arm_{arm},{info.get('exp_tag')}",
-            "hf_checkpoint": (info.get("hf_checkpoint") or "-") + (f"/tree/wandb-{rid}" if rid and info.get("hf_checkpoint") else ""),
-            "hf_eval": (info.get("hf_checkpoint") or "-") + "/tree/main/eval" if info.get("hf_checkpoint") else "-",
-            "hf_build": info.get("hf_build") or "-",
-        })
+        for tag, info in T.run_infos(exp_dir, arm).items():
+            rid = info.get("wandb_run_id")
+            rows.append({
+                "run": f"{info.get('wandb_run_name')} ({rid})", "model_tag": info.get("model_tag") or tag,
+                "url": T.wandb_run_url(rid) if rid else "-",
+                "tags": f"arm_{arm},{info.get('exp_tag')}",
+                "hf_checkpoint": (info.get("hf_checkpoint") or "-") + (f"/tree/wandb-{rid}" if rid and info.get("hf_checkpoint") else ""),
+                "hf_eval": (info.get("hf_checkpoint") or "-") + f"/tree/eval%2Fwandb-{rid}" if info.get("hf_checkpoint") and rid else "-",
+                "eval_dir": info.get("eval_dir") or str(T.eval_output_dir(exp_dir, info.get("model_tag") or tag)),
+                "hf_build": info.get("hf_build") or "-",
+            })
     return rows
 
 
@@ -60,15 +62,20 @@ def from_hf(repo_id):
     """Reverse direction: list the wandb-tagged commits of an HF model repo."""
     api = T.hf_api()
     refs = api.list_repo_refs(repo_id)
-    return [{"tag": t.name, "commit": t.target_commit[:8],
-             "wandb": T.wandb_run_url(t.name.removeprefix("wandb-")) if t.name.startswith("wandb-") else "-"}
-            for t in refs.tags]
+    def wandb_of(tag: str) -> str:
+        # wandb-<run_id> = checkpoint identity; wandb-<run_id>-eval[-label] = its evaluation branch tag;
+        # wandb-artifact-vN = a migrated wandb artifact version (no training run)
+        if not tag.startswith("wandb-") or tag.startswith("wandb-artifact-"):
+            return "-"
+        rid = tag.removeprefix("wandb-").split("-eval", 1)[0]
+        return T.wandb_run_url(rid) + ("  (evaluation)" if "-eval" in tag else "")
+    return [{"tag": t.name, "commit": t.target_commit[:8], "wandb": wandb_of(t.name)} for t in refs.tags]
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run", default=None, help="a wandb run id")
-    ap.add_argument("--exp-dir", default=None, help="read arm_*/run_info.json instead of asking wandb")
+    ap.add_argument("--exp-dir", default=None, help="read arm_*/run_info*.json (one per model tag) instead of asking wandb")
     ap.add_argument("--hf", default=None, help="an HF model repo (e.g. Daniele/ctx_C_d24_base): list its wandb-tagged commits")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()

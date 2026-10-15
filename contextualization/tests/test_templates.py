@@ -166,3 +166,87 @@ def test_filler_sentence_required_for_v2_default(legacy_pool):
     f = next(iter(legacy_pool.values()))
     with pytest.raises(ProtocolError):
         T.render_inserts(f, 0, 1, T.RenderPolicy(), arms=("C",))
+
+
+# --- review 2026-10-14 (second review) findings 12, 13, 15 ----------------------------------
+
+def test_fixed_rendering_fixes_the_control_insert_too(legacy_pool):
+    """Finding 12: under fixed rendering every arm, including C, repeats ONE string per fact."""
+    f = next(f for f in legacy_pool.values() if f.assigned_frequency >= 16)
+    rows = [T.render_inserts(f, o, 4, T.RenderPolicy.fixed_rendering()) for o in range(10)]
+    assert {a: len({r[a].text for r in rows}) for a in "CRX"} == {"C": 1, "R": 1, "X": 1}
+    var = [T.render_inserts(f, o, 4, T.RenderPolicy(neutral="canned"), neutral_sentence=None) for o in range(10)]
+    assert len({r["C"].text for r in var}) > 1
+
+
+def test_fixed_mode_honours_explicit_overrides():
+    """Finding 13: fixed defaults, then explicit --policy-* overrides."""
+    import build_dataset
+    from ctx import blend
+    from ctx.protocol import PROTOCOL_V2
+    a = build_dataset.parse_args(["--out", "/tmp/unused", "--render-mode", "fixed", "--policy-wrapper", "random"])
+    pol = blend.resolve_policy(a, PROTOCOL_V2)
+    assert pol.wrapper == "random" and pol.paraphrase == "fixed" and pol.source == "per_fact" and pol.register == "none"
+    b = build_dataset.parse_args(["--out", "/tmp/unused", "--render-mode", "fixed"])
+    assert blend.resolve_policy(b, PROTOCOL_V2).to_dict() == T.RenderPolicy.fixed_rendering().to_dict()
+
+
+def test_token_aware_filler_meets_token_limits_on_the_reviewers_case(historical_tokenizer):
+    """Finding 15: fact 52df0467bbf5445e occurrence 1 (2,500 groups, seed 1234) had X 49 tokens vs
+    E 40 under character matching; with the real tokenizer the E filler is chosen within limits."""
+    from ctx import factpool_v2 as F
+    tok = historical_tokenizer
+    g = F.build_semantic_pool(2500, 1234)
+    tr, he = F.split_groups(g, .3, 1234)
+    F.assign_injection(tr, [1, 4, 16, 64, 256], 1234)
+    c = next(c for c in F.injected_statements(tr) if c.fact_id == "52df0467bbf5445e")
+    chars_only = T.xe_diagnostics(T.render_inserts(c, 1, 1234, T.RenderPolicy(), arms=("X", "E")), tok)
+    assert abs(chars_only["delta_tokens"]) > T.XE_MATCH_LIMITS["max_abs_delta_tokens"]
+    aware = T.xe_diagnostics(T.render_inserts(c, 1, 1234, T.RenderPolicy(), arms=("X", "E"), tokenizer=tok), tok)
+    lim = T.XE_MATCH_LIMITS
+    assert abs(aware["delta_tokens"]) <= lim["max_abs_delta_tokens"]
+    assert abs(aware["delta_chars"]) <= lim["max_abs_delta_chars"]
+    # a sample of the full intended pool stays within both families of limits
+    dt, dc, dts = [], [], []
+    for cs in F.injected_statements(tr)[::25]:
+        for occ in range(min(cs.assigned_frequency, 3)):
+            d = T.xe_diagnostics(T.render_inserts(cs, occ, 1234, T.RenderPolicy(), arms=("X", "E"), tokenizer=tok), tok)
+            dt.append(abs(d["delta_tokens"])); dc.append(abs(d["delta_chars"])); dts.append(abs(d["delta_claim_tok_start"]))
+    assert max(dt) <= lim["max_abs_delta_tokens"] and statistics.mean(dt) <= lim["max_mean_abs_delta_tokens"]
+    assert max(dc) <= lim["max_abs_delta_chars"] and statistics.mean(dc) <= lim["max_mean_abs_delta_chars"]
+    assert max(dts) <= lim["max_abs_delta_claim_tok_start"]
+
+
+def test_xe_match_limits_are_versioned_and_the_claim_start_token_rule_is_enforced():
+    """Recheck 2026-10-14 gaps 2 + 3: XE_MATCH_LIMITS_VERSION is the machine-readable frozen choice
+    recorded by the builder; blend._xe_summary enforces max_abs_delta_claim_tok_start in absolute
+    mode and |delta_claim_tok_start| / len_tokens_X <= max_abs_delta_tokens_frac per occurrence in
+    relative mode (toy tokenizers); an unknown vocabulary gets the absolute limits."""
+    from ctx.blend import _xe_summary
+    lim = T.XE_MATCH_LIMITS
+    assert isinstance(T.XE_MATCH_LIMITS_VERSION, str) and T.XE_MATCH_LIMITS_VERSION == "2026-10-14.1"
+    assert lim["max_abs_delta_claim_tok_start"] == 8
+    base = dict(delta_chars=3, delta_claim_start=2, E_has_source_cue=False, delta_tokens=1, len_tokens_X=40)
+    ok = _xe_summary([dict(base, delta_claim_tok_start=2), dict(base, delta_claim_tok_start=-8)], vocab=32768)
+    assert ok["token_limit_mode"] == "absolute" and ok["within_token_limits"] is True and ok["within_limits"] is True
+    assert ok["max_abs_delta_claim_tok_start"] == 8 and ok["mean_abs_delta_claim_tok_start"] == 5
+    assert ok["limits_version"] == T.XE_MATCH_LIMITS_VERSION and ok["limits"] == lim
+    # token-length deltas fine, claim start 9 tokens off -> not within the token limits
+    bad = _xe_summary([dict(base, delta_claim_tok_start=9), dict(base, delta_claim_tok_start=0)], vocab=32768)
+    assert bad["max_abs_delta_tokens"] <= lim["max_abs_delta_tokens"]
+    assert bad["mean_abs_delta_tokens"] <= lim["max_mean_abs_delta_tokens"]
+    assert bad["within_char_limits"] is True and bad["token_limits_verified"] is True
+    assert bad["within_token_limits"] is False and bad["within_limits"] is False
+    # relative mode (KNOWN toy vocabulary): 9/40 = 0.225 > 0.20 fails, 7/40 = 0.175 passes
+    rel_bad = _xe_summary([dict(base, delta_claim_tok_start=9)], vocab=768)
+    assert rel_bad["token_limit_mode"] == "relative (toy tokenizer)" and rel_bad["within_token_limits"] is False
+    assert rel_bad["max_abs_delta_claim_tok_start_frac"] == 9 / 40
+    rel_ok = _xe_summary([dict(base, delta_claim_tok_start=7)], vocab=768)
+    assert rel_ok["within_token_limits"] is True and rel_ok["max_abs_delta_tokens_frac"] == 1 / 40
+    # an unknown (None / 0) vocabulary never selects the toy relative limits
+    unk = _xe_summary([dict(base, delta_claim_tok_start=9)], vocab=None)
+    assert unk["token_limit_mode"] == "absolute" and unk["within_token_limits"] is False and unk["tokenizer_vocab"] is None
+    assert _xe_summary([dict(base, delta_claim_tok_start=2)], vocab=0)["token_limit_mode"] == "absolute"
+    # no token diagnostics at all: unverified, never "within limits"
+    none = _xe_summary([dict(delta_chars=3, delta_claim_start=2, E_has_source_cue=False)])
+    assert none["within_token_limits"] is None and none["token_limits_verified"] is False and none["within_limits"] is False

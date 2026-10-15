@@ -33,8 +33,9 @@ written to <out>/validation_report.json):
    7. held-out leakage: no held-out claim / surface form in any insert (word-bounded; also the
       lower-cased clause variant); v2: no novel held-out subject in any insert (real-entity
       subject hits are reported as a NOTE); unasserted rivals never asserted.
-   8. X/E matching (when E is present): char / claim-start / token deltas recomputed from the
-      manifest spans and enforced against templates.XE_MATCH_LIMITS (v2; NOTE for legacy E).
+   8. X/E matching (when E is present): char / claim-start / token / claim-start-token deltas
+      recomputed from the manifest spans and enforced against templates.XE_MATCH_LIMITS (v2; NOTE
+      for legacy E); the limit mode (absolute / relative) is selected by ctx.tokenizers.token_limit_mode.
    9. tokenizer identity across arms (and vs the summary's recorded fingerprint).
   10. counts: build_summary counts recomputed from the probe files and the manifest.
 """
@@ -59,6 +60,7 @@ from ctx.nanochat_io import read_shard_texts, shard_filename, shard_num_rows
 from ctx.protocol import (PROTOCOL_V1, PROTOCOL_V2, ProtocolError, code_revision, protocol_of,
                           sha256_file, tokenizer_fingerprint)
 from ctx import templates as _T
+from ctx.tokenizers import TokenizerUnavailable, load_encoder, token_limit_mode, vocab_size_of
 
 REPORT_SCHEMA = 1
 COMPLETE_MARKER = "BUILD_COMPLETE.json"
@@ -230,30 +232,14 @@ def _shard_paths(arm_dir, data_subdir):
 
 
 def _load_tokenizer(tok_dir):
-    """A tokenizer with .encode(str)->list[int] from <dir>/tokenizer.pkl, or None (+reason)."""
-    d = Path(tok_dir)
-    if (d / "tokenizer" / "tokenizer.pkl").exists():
-        d = d / "tokenizer"
-    if not (d / "tokenizer.pkl").exists():
-        return None, f"no tokenizer.pkl under {tok_dir}"
-    repo_root = str(Path(__file__).resolve().parents[1])
-    if repo_root not in sys.path:
-        sys.path.append(repo_root)
+    """(tokenizer, how) through the loader shared with the builder (ctx.tokenizers.load_encoder:
+    nanochat's RustBPETokenizer when importable, else the tiktoken pickle; both expose
+    encode / decode / get_vocab_size with the TRUE vocabulary), or (None, reason) when the
+    tokenizer cannot be loaded here (recheck 2026-10-14 finding 7)."""
     try:
-        from nanochat.tokenizer import RustBPETokenizer
-        return RustBPETokenizer.from_directory(str(d)), "nanochat.tokenizer.RustBPETokenizer"
-    except Exception as e:  # pragma: no cover - fallback path
-        try:
-            import pickle
-            with open(d / "tokenizer.pkl", "rb") as fh:
-                enc = pickle.load(fh)
-
-            class _Enc:
-                def encode(self, s):
-                    return enc.encode_ordinary(s)
-            return _Enc(), f"pickle fallback ({type(e).__name__}: {e})"
-        except Exception as e2:
-            return None, f"tokenizer unreadable ({type(e2).__name__}: {e2})"
+        return load_encoder(tok_dir)
+    except TokenizerUnavailable as e:
+        return None, f"{e.reason} ({e.hint})"
 
 
 def _to_int(x, default=-1):
@@ -916,7 +902,7 @@ def lockstep_pass(rep: Report, out: Path, summary: dict, files: dict, arms, pr: 
     slot_positions = []
     examples = []
     xe_pairs = []
-    xe = {"dc": [], "ds": [], "dt": [], "lx_tok": []}
+    xe = {"dc": [], "ds": [], "dt": [], "lx_tok": [], "dts_tok": []}
     pos = 0
     t0 = time.time()
     claim_arms = [a for a in arms if a != "C"]
@@ -963,6 +949,11 @@ def lockstep_pass(rep: Report, out: Path, summary: dict, files: dict, arms, pr: 
                         n_tx = len(tokenizer.encode(tx))
                         xe["dt"].append(abs(len(tokenizer.encode(te)) - n_tx))
                         xe["lx_tok"].append(n_tx)
+                        # claim-start token delta exactly as templates.xe_diagnostics measures it: the
+                        # tokens of the insert text BEFORE the claim (manifest spans, insert-relative)
+                        rel_x = min(len(tx), max(0, _to_int(rx["claim_char_start"]) - _to_int(rx["insert_char_start"])))
+                        rel_e = min(len(te), max(0, _to_int(re_["claim_char_start"]) - _to_int(re_["insert_char_start"])))
+                        xe["dts_tok"].append(abs(len(tokenizer.encode(te[:rel_e])) - len(tokenizer.encode(tx[:rel_x]))))
                     if len(xe_pairs) < 5:
                         xe_pairs.append((tx, te, dc, ds))
                 next_slot = next(slots, None)
@@ -1132,26 +1123,50 @@ def lockstep_pass(rep: Report, out: Path, summary: dict, files: dict, arms, pr: 
                 rep.note("8.char_length", "legacy E frames (protocol v1) are not length-matched by design (finding 5): " + msg_c, **nums)
                 rep.note("8.claim_start", msg_s, **nums)
             if xe["dt"]:
-                nt = {"max_abs_delta_tokens": max(xe["dt"]), "mean_abs_delta_tokens": statistics.mean(xe["dt"])}
-                vocab = getattr(tokenizer, "get_vocab_size", lambda: 0)() if tokenizer is not None else 0
-                if vocab >= lim.get("absolute_token_limits_min_vocab", 16384):
+                # the limit MODE comes from the shared selector: absolute unless the vocabulary is KNOWN
+                # and small (toy tokenizers); an unknown vocabulary never selects the toy relative limits
+                # (recheck 2026-10-14 finding 7). Mode, vocabulary and limits version are recorded.
+                vocab = vocab_size_of(tokenizer)
+                mode = token_limit_mode(vocab)
+                tag = {"tokenizer_vocab": vocab, "token_limit_mode": mode, "limits_version": _T.XE_MATCH_LIMITS_VERSION}
+                nt = {"max_abs_delta_tokens": max(xe["dt"]), "mean_abs_delta_tokens": statistics.mean(xe["dt"]), **tag}
+                ns = {"max_abs_delta_claim_tok_start": max(xe["dts_tok"]),
+                      "mean_abs_delta_claim_tok_start": statistics.mean(xe["dts_tok"]), **tag}
+                vtxt = vocab if vocab is not None else "unknown"
+                if mode == "absolute":
                     ok_t = nt["max_abs_delta_tokens"] <= lim["max_abs_delta_tokens"] and nt["mean_abs_delta_tokens"] <= lim["max_mean_abs_delta_tokens"]
                     msg_t = (f"|tokens(E)-tokens(X)|: max {nt['max_abs_delta_tokens']} <= {lim['max_abs_delta_tokens']}, "
-                             f"mean {nt['mean_abs_delta_tokens']:.2f} <= {lim['max_mean_abs_delta_tokens']} (vocab {vocab}, absolute limits)")
+                             f"mean {nt['mean_abs_delta_tokens']:.2f} <= {lim['max_mean_abs_delta_tokens']} "
+                             f"(vocab {vtxt}, absolute limits, limits {_T.XE_MATCH_LIMITS_VERSION})")
+                    ok_cs = ns["max_abs_delta_claim_tok_start"] <= lim["max_abs_delta_claim_tok_start"]
+                    msg_cs = (f"|claim start E - X| tokens: max {ns['max_abs_delta_claim_tok_start']} <= "
+                              f"{lim['max_abs_delta_claim_tok_start']} (vocab {vtxt}, absolute limits)")
                 else:
-                    # toy tokenizer (vocab < 16384): relative limits, fraction of the X insert's token length
+                    # KNOWN toy tokenizer (vocab < 16384): relative limits, fractions of the X insert's token length
                     fr = [d / max(1, lx) for d, lx in zip(xe["dt"], xe["lx_tok"])]
                     nt.update(max_abs_delta_tokens_frac=max(fr), mean_abs_delta_tokens_frac=statistics.mean(fr))
                     ok_t = nt["max_abs_delta_tokens_frac"] <= lim["max_abs_delta_tokens_frac"] and \
                         nt["mean_abs_delta_tokens_frac"] <= lim["max_mean_abs_delta_tokens_frac"]
                     msg_t = (f"|tokens(E)-tokens(X)| / tokens(X): max {nt['max_abs_delta_tokens_frac']:.3f} <= {lim['max_abs_delta_tokens_frac']}, "
-                             f"mean {nt['mean_abs_delta_tokens_frac']:.3f} <= {lim['max_mean_abs_delta_tokens_frac']} (vocab {vocab}, relative limits)")
+                             f"mean {nt['mean_abs_delta_tokens_frac']:.3f} <= {lim['max_mean_abs_delta_tokens_frac']} "
+                             f"(vocab {vtxt}, relative limits, limits {_T.XE_MATCH_LIMITS_VERSION})")
+                    frs = [d / max(1, lx) for d, lx in zip(xe["dts_tok"], xe["lx_tok"])]
+                    ns.update(max_abs_delta_claim_tok_start_frac=max(frs))
+                    ok_cs = ns["max_abs_delta_claim_tok_start_frac"] <= lim["max_abs_delta_tokens_frac"]
+                    msg_cs = (f"|claim start E - X| tokens / tokens(X): max {ns['max_abs_delta_claim_tok_start_frac']:.3f} <= "
+                              f"{lim['max_abs_delta_tokens_frac']} (vocab {vtxt}, relative limits)")
                 if protocol == PROTOCOL_V2:
                     rep.check(ok_t, "8.token_length", msg_t, **nt)
+                    rep.check(ok_cs, "8.claim_tok_start", msg_cs, **ns)
                 else:
                     rep.note("8.token_length", msg_t, **nt)
+                    rep.note("8.claim_tok_start", msg_cs, **ns)
             else:
-                rep.skip("8.token_length", "no tokenizer available (arm_C/tokenizer or --tokenizer-dir): token deltas not computed")
+                if protocol == PROTOCOL_V2:
+                    rep.check(False, "8.token_length", "no tokenizer available (arm_C/tokenizer or --tokenizer-dir): X/E token "
+                              "limits NOT verified -- a v2 build with arm E is not validated without the training tokenizer")
+                else:
+                    rep.skip("8.token_length", "no tokenizer available (arm_C/tokenizer or --tokenizer-dir): token deltas not computed")
             print("  X/E example pairs:")
             for tx, te, dc, ds in xe_pairs:
                 print(f"    [X] {tx}\n    [E] {te}\n        (delta chars {dc:+d}, delta claim start {ds:+d})")
@@ -1467,7 +1482,10 @@ def main(argv=None) -> int:
         if tokenizer is None:
             rep.note("9.tokenizer_load", f"tokenizer not loadable here ({how}); token-level checks skipped")
         else:
-            rep.note("9.tokenizer_load", f"tokenizer loaded via {how}")
+            vocab = vocab_size_of(tokenizer)
+            rep.note("9.tokenizer_load", f"tokenizer loaded via {how}; vocab {vocab if vocab is not None else 'unknown'}; "
+                     f"X/E token limit mode {token_limit_mode(vocab)} (limits {_T.XE_MATCH_LIMITS_VERSION})",
+                     tokenizer_vocab=vocab, token_limit_mode=token_limit_mode(vocab), limits_version=_T.XE_MATCH_LIMITS_VERSION)
     # 6
     check_pool_invariants(rep, pr, summary, out, arms)
     # 5 (manifest pass 1)

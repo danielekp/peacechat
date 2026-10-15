@@ -95,12 +95,17 @@ Read from `nanochat/dataset.py`, `nanochat/dataloader.py`, `dev/repackage_data_r
 
 ```bash
 cd contextualization
-uv venv && uv pip install pyarrow numpy tqdm requests datasets
-# or: uv sync
+uv sync            # pyarrow, numpy, tqdm, requests, datasets, huggingface_hub, wandb, scipy, tiktoken (locked)
 source .venv/bin/activate
 ```
 
-`datasets` is only needed for the optional CounterFact held-out probe set; everything else is light.
+`datasets` is only needed for the optional CounterFact held-out probe set. `tiktoken` IS required
+(recheck 2026-10-14, finding 7): the trained tokenizer is a pickled `tiktoken.Encoding`, and both
+the builder (`--tokenizer-src`, X/E token matching) and `validate.py` (section 8) load it through
+`ctx.tokenizers.load_encoder`, which uses nanochat's `RustBPETokenizer` when importable and
+otherwise the pickle itself (same ids, same vocabulary; `tests/test_tokenizers.py` runs the
+lightweight environment itself when `contextualization/.venv` exists). A missing file, a missing
+tiktoken module or a corrupt pickle is a hard error with an install hint.
 
 ---
 
@@ -144,9 +149,21 @@ Key flags: `--num-groups` (semantic groups; injected statements = training group
 `--render-mode fixed` (fixed-rendering dose control) and `--policy-<control>` for each rendering
 control (paraphrase, wrapper, source, stance, register, tails, neutral, x_templates,
 e_templates; see `docs/PROTOCOL_V2.md` §3), `--source-per-fact`, `--embedding-control`,
-`--probes-only` (verified re-emission into `probe_sets_regen/`), `--overwrite`,
-`--fineweb-revision`, `--tokenizer-src`, `--protocol v1` (historical generator/rendering, with
-its known defects, for a verified recreation of the July design only).
+`--probes-only` (verified re-emission into `probe_sets_regen/`, under the build's recorded
+rendering policy; conflicting overrides are refused), `--overwrite` (removes every build-derived
+artifact, including audits), `--fineweb-revision <commit>` with `--require-pinned-source` and
+`--verify-cache` for funded builds (an unpinned ref is resolved and recorded with a warning),
+`--tokenizer-src` (makes X/E matching token-aware; the tokenizer is loaded and validated BEFORE
+anything is downloaded or written and an unusable one stops the build; without it a v2 build with
+arm E prints a WARNING and does NOT validate), `--protocol v1` (historical generator/rendering, with
+its known defects, for a verified recreation of the July design only). `build_summary.json`
+records `match_tokenizer` (source, loader path, vocabulary, limit mode), `design_cells` (planned
+cells of the injection design, empty cells included) and `xe_diagnostics.limits_version`.
+`--probes-only` restores novelty labels from `novelty_audit.json` or, when that file is missing,
+from the audit embedded in `build_summary.json` (both must carry the build's `build_id`), refuses
+regeneration without usable audit evidence, and verifies the regenerated records against the
+build's original probe files whenever they still hash to `BUILD_COMPLETE.json`
+(`verified_against_probe_files` in `PROBES_META.json`; a mismatch is a refusal).
 
 Everything is seeded: **same args + same `--seed` => byte-identical shards** (tested), and the
 optional arm E never changes C/R/X.
@@ -258,11 +275,43 @@ python exposure_audit.py --exp-dir <build> --arms C R X E --mode prepack   --T 2
 python exposure_audit.py --exp-dir <build> --arms C R X E --mode prepacked --T 2048 --data-seed 1 --B 8 --grad-accum 64 --num-iterations 8352
 ```
 
-`--mode prepack` writes `arm_<A>/prepacked/` (rows + loss masks + `prepack_manifest.json` with
+`--mode prepack` writes `arm_<A>/prepacked/` (bound to the encoding fingerprint of the tokenizer that
+produced the rows, with per-file hashes, active-target counts and a `prepack_dataset_id`); `--mode
+prepacked` is the **preflight**: it writes `exposure/PREFLIGHT_OK.json` only when every occurrence is
+complete, effective and scheduled identically in every arm, and `run_arm.py` / `base_train` refuse to
+start without a preflight matching the actual configuration. `--mode prepack` also writes `arm_<A>/prepacked/` (rows + loss masks + `prepack_manifest.json` with
 scored/masked token totals per arm); `--mode prepacked` writes `exposure/<arm>/occurrence_exposure.csv`
 (status complete/partial/omitted, scored claim/value tokens, epoch/micro-batch/step) and
 `exposure/cross_arm.json`, and FAILS if any occurrence is incomplete or scheduled differently across
 arms. Train with `--data-loader prepacked` (see below). Never estimate exposure as frequency x epochs.
+
+## Launching (corrected path)
+
+For protocol-v2 builds `run_arm.py` requires an explicit `--data-loader prepacked|bestfit`; with
+`prepacked` the preflight must exist and name the arm's current prepacked dataset. `--init-seed S`
+selects model tag `d<depth>_sS`: its own checkpoint dir, wandb run and HF repo, its own run
+metadata (`arm_<ARM>/run_info_d<depth>_sS.json`) and its own evaluation outputs
+(`eval/seed_S/beliefs_arm<ARM>.csv`, the layout `analyze_beliefs.py` summarizes per replicate), so
+several seeds trained into one build never collide; after training the launcher prints whether
+`init_param_sha256` matches the other arms with the same seed. A resume (`--resume-from-step`)
+must keep the checkpoint's schedule (device batch, context, total batch / accumulation, world
+size, horizon); a changed schedule is refused even behind a freshly generated preflight.
+
+```bash
+# the preflight must certify the same loss normalization the runs select (funded runs: fixed_nominal, explicitly)
+uv run python contextualization/exposure_audit.py --exp-dir <build> --arms C R X E --mode prepacked --T 2048 --data-seed 1 \
+    --B 8 --grad-accum 64 --num-iterations <N> --loss-normalization fixed_nominal
+for ARM in C R X E; do
+  uv run python contextualization/run_arm.py --arm $ARM --exp-dir <build> --depth 24 --data-loader prepacked \
+      --init-seed 1 --data-seed 1 --loss-normalization fixed_nominal
+done
+```
+
+Loss normalization (decision 2026-10-15, `docs/EXPOSURE.md` section 10): `fixed_nominal` divides each
+micro-batch's summed token losses by `B x T x grad_accum` (masked tokens contribute zero, equal
+coefficients across arms); the historical `microbatch_mean` stays the default. The policy is recorded
+in every checkpoint meta and preflight, bound on resume, and the analysis refuses to pool evaluations
+of checkpoints trained under different objectives.
 
 ## Seeds
 
@@ -284,6 +333,11 @@ One entry point writes `<eval-dir>/analysis_v2/{analysis.md,tables/,cohorts/,fig
 every table/test/figure names its cohort and denominators; paired contrasts use scipy's Wilcoxon,
 group-clustered bootstrap CIs and Holm families; equivalence is only tested with an explicit
 margin; replicates (`seed_*/` subdirs) are summarized as mean/SD across runs, never pooled;
+before anything is aggregated every evaluation is bound to the selected probe files / build
+summary / manifest / exposure identities and to one experiment-wide scoring contract (mode,
+tokenizer, construction version, per-item scored texts, matched initial weights and budget;
+`docs/ANALYSIS.md`), so mock and real replicates, foreign probe files or evaluators that
+scored different texts under the same template ids stop the analysis;
 CounterFact reports paired item changes, reversals in both directions and accuracy; the
 memorization table joins each template-0 probe to the forms actually rendered (and, with an
 exposure index, actually scored).
@@ -300,8 +354,13 @@ exposure index, actually scored).
 - Legacy (July) probe files are read as protocol v1; `group_id` is derived from `(relation, subject)`.
 
 Belief measurement (`eval_beliefs.py`): both candidates of every probe are rendered from the same
-structured template with explicit answer spans and compared under one jointly chosen tokenized
-conditioning prefix; `logp_value - logp_competing` keeps its historical definition
+structured template with explicit answer spans (the competing wrapper candidate is rendered from
+a value-swapped record under the identical policy, so repeated slots are all replaced) and
+compared under one jointly chosen tokenized conditioning prefix; byte-exact answer/suffix merge
+flags are stored for both candidates; the meta json hashes the probe files actually opened and a
+bound checkpoint is only scored on its own build's probes unless `--allow-build-mismatch` is
+given; evaluation uploads go to an `eval/wandb-<run_id>` branch and `wandb-<run_id>-eval` tag
+bound to the verified checkpoint commit (the run's checkpoint tag is never moved); `logp_value - logp_competing` keeps its historical definition
 (answer-plus-suffix for cloze passes, full sentence for the paraphrase pass) and answer-only
 sub-sums are stored alongside. Passes: `cloze_neutral`, `cloze_attributed`,
 `wrapper_conditional` (the exact occurrence-0 Arm-X training text, cut at the value), and

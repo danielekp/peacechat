@@ -697,9 +697,34 @@ def _closest_filler(target_len: int) -> str:
     return min(E_FILLERS_V2, key=lambda f: (abs(len(f) - target_len), len(f)))
 
 
+def _closest_filler_tokens(tokenizer, x_text: str, e_frame: str, values: dict, target_len: int) -> str:
+    """The filler whose E rendering matches the X insert in TOKENS and characters jointly: among
+    fillers within the per-occurrence limits for both, the smallest token delta (ties: character
+    delta); when none satisfies both, the smallest limit-normalized maximum of the two deltas."""
+    lim = XE_MATCH_LIMITS
+    n_x = len(tokenizer.encode(x_text))
+    # the token limit is absolute for experiment-scale vocabularies and relative (a fraction of
+    # the X insert's token length) for toy tokenizers, exactly as validate.py applies it
+    vocab = tokenizer.get_vocab_size() if hasattr(tokenizer, "get_vocab_size") else lim["absolute_token_limits_min_vocab"]
+    tok_lim = lim["max_abs_delta_tokens"] if vocab >= lim["absolute_token_limits_min_vocab"] \
+        else max(1.0, lim["max_abs_delta_tokens_frac"] * n_x)
+    scored = []
+    for f in E_FILLERS_V2:
+        e_text = _fill(e_frame, {**values, "filler": f}).tidy(_TIDY_STEPS_V2).text
+        dt, dc = abs(len(tokenizer.encode(e_text)) - n_x), abs(len(f) - target_len)
+        scored.append((f, dt, dc))
+    ok = [(f, dt, dc) for f, dt, dc in scored if dt <= tok_lim and dc <= lim["max_abs_delta_chars"]]
+    if ok:
+        # token deltas within one token of the best are ties, broken by the character delta, so
+        # the secondary (character) criterion does not drift while token agreement stays within 1
+        best_dt = min(t[1] for t in ok)
+        return min(ok, key=lambda t: (t[1] > best_dt + 1, t[2], t[1], len(t[0])))[0]
+    return min(scored, key=lambda t: (max(t[1] / tok_lim, t[2] / lim["max_abs_delta_chars"]), t[1], t[2]))[0]
+
+
 def render_inserts(fact, occ: int, seed: int, policy: RenderPolicy | None = None, *,
                    verbatim: bool = False, register: bool = True, source_per_fact: bool = False,
-                   arms=("C", "R", "X"), neutral_sentence: str | None = None) -> dict:
+                   arms=("C", "R", "X"), neutral_sentence: str | None = None, tokenizer=None) -> dict:
     """Span-aware rendering for one occurrence. Returns {arm: Insert}.
 
     policy None or RenderPolicy.legacy() -> protocol v1: strings are byte-identical to
@@ -713,7 +738,7 @@ def render_inserts(fact, occ: int, seed: int, policy: RenderPolicy | None = None
             and policy.tails == "legacy" and policy.neutral == "canned" and policy.register == "rotate" and policy.source == "rotate":
         return _render_legacy(fact, occ, seed, verbatim=verbatim, register=register,
                               source_per_fact=source_per_fact or policy.source == "per_fact", arms=arms)
-    return _render_v2(fact, occ, seed, policy, arms=arms, neutral_sentence=neutral_sentence)
+    return _render_v2(fact, occ, seed, policy, arms=arms, neutral_sentence=neutral_sentence, tokenizer=tokenizer)
 
 
 def _surface_tagged(fact, frame_index: int) -> TaggedText:
@@ -831,7 +856,7 @@ def _make_source_v2(rng):
     return name, style
 
 
-def _render_v2(fact, occ, seed, policy: RenderPolicy, *, arms, neutral_sentence) -> dict:
+def _render_v2(fact, occ, seed, policy: RenderPolicy, *, arms, neutral_sentence, tokenizer=None) -> dict:
     fid = fact.fact_id
     allowed = training_frame_indices(fact)
     if not allowed or any(i is None for i in allowed):
@@ -888,7 +913,8 @@ def _render_v2(fact, occ, seed, policy: RenderPolicy, *, arms, neutral_sentence)
                 raise ProtocolError("RenderPolicy.neutral='filler_sentence' needs neutral_sentence")
             n_text, n_index = neutral_sentence, -1
         else:
-            n_index = int(rng_for(seed, "render.v2.neutral", fid, occ).integers(0, len(NEUTRAL_INSERTS_V2)))
+            # fixed rendering: ONE canned neutral sentence per fact (review 2026-10-14 finding 12)
+            n_index = int(rng_for(seed, "render.v2.neutral", fid, "fixed" if fixed_all else occ).integers(0, len(NEUTRAL_INSERTS_V2)))
             n_text = NEUTRAL_INSERTS_V2[n_index]
         neutral_t = lead_t + TaggedText(n_text)
         out["C"] = Insert("C", neutral_t.text, neutral_t.spans, -1, register_index=lead_index, wrapper_index=n_index)
@@ -908,8 +934,15 @@ def _render_v2(fact, occ, seed, policy: RenderPolicy, *, arms, neutral_sentence)
                                                      "verb": verb, "clause": clause, "sf": sf_claim}).tidy(_TIDY_STEPS_V2)
             e_bare = _fill(e_frames[wrapper_index], {"year": year_e, "filler": "", "clause": clause, "sf": sf_claim})
             target = len(x_core.text) - len(e_bare.text)
-            filler = _closest_filler(max(target, len(min(E_FILLERS_V2, key=len)))) if policy.e_length_match \
-                else str(rng_e.choice(E_FILLERS_V2))
+            if not policy.e_length_match:
+                filler = str(rng_e.choice(E_FILLERS_V2))
+            elif tokenizer is None:
+                filler = _closest_filler(max(target, len(min(E_FILLERS_V2, key=len))))
+            else:
+                # token-aware choice with the ACTUAL training tokenizer (review 2026-10-14
+                # finding 15): minimize |tokens(E) - tokens(X)| first, then the character delta
+                filler = _closest_filler_tokens(tokenizer, x_core.text, e_frames[wrapper_index],
+                                                {"year": year_e, "clause": clause, "sf": sf_claim}, target)
             e_t = _fill(e_frames[wrapper_index], {"year": year_e, "filler": filler, "clause": clause, "sf": sf_claim})
             e_tail_index = -1
         else:
@@ -951,6 +984,7 @@ def xe_diagnostics(inserts: dict, tokenizer=None) -> dict:
         d["len_tokens_X"], d["len_tokens_E"], d["delta_tokens"] = len(tx), len(te), len(te) - len(tx)
         d["claim_tok_start_X"] = len(tokenizer.encode(x.text[:cx[0]]))
         d["claim_tok_start_E"] = len(tokenizer.encode(e.text[:ce[0]]))
+        d["delta_claim_tok_start"] = d["claim_tok_start_E"] - d["claim_tok_start_X"]
     # cue detection on the FRAME only: the claim itself may legitimately contain "wrote" and the
     # register lead-in is shared verbatim by every arm (it is not an E-specific cue)
     lead = e.first("lead") or (0, 0)
@@ -965,11 +999,40 @@ def xe_diagnostics(inserts: dict, tokenizer=None) -> dict:
 
 
 # matching thresholds enforced by validate.py / build diagnostics (characters and tokens)
-XE_MATCH_LIMITS = {"max_abs_delta_chars": 12, "max_mean_abs_delta_chars": 4.0,
-                   "max_abs_delta_claim_start": 12,
+# X/E matching limits. Tokens are the primary criterion (what the model is trained on); character
+# limits are secondary and looser since the token-aware filler choice trades a few characters for
+# token agreement (review 2026-10-14 finding 15). Measured on the 2,500-group seed-1234 pool with
+# the July tokenizer: |dtok| max 7 / mean 0.58, |dchars| max 12 / mean 4.6, claim-start tokens
+# max 6 / mean 0.57.
+#
+# Frozen protocol choice, versioned: XE_MATCH_LIMITS_VERSION is recorded in
+# build_summary.json["xe_diagnostics"]["limits_version"] and in the validator's section-8 numbers,
+# so an artifact says which limits it was matched and checked against. Bump the version whenever a
+# value or a rule below changes.
+#
+# Rules (ctx.blend._xe_summary and validate.py section 8 apply the same ones; the limit MODE is
+# selected by ctx.tokenizers.token_limit_mode):
+#   characters (every build): max |len(E)-len(X)| <= max_abs_delta_chars, mean <= max_mean_abs_delta_chars,
+#     max |claim start E - claim start X| <= max_abs_delta_claim_start, and no source cue in any E frame.
+#   tokens, absolute mode (experiment-scale tokenizers, vocab >= absolute_token_limits_min_vocab, e.g.
+#     the 32768-vocab nanochat tokenizer, AND whenever the vocabulary is unknown -- an unknown size is
+#     never treated as small): max |tok(E)-tok(X)| <= max_abs_delta_tokens, mean <= max_mean_abs_delta_tokens,
+#     and the claim-start rule max |claim_tok_start_E - claim_tok_start_X| <= max_abs_delta_claim_tok_start
+#     (claim_tok_start = number of tokens of the insert text before the claim span, as xe_diagnostics
+#     measures it; the validator recomputes it from the manifest's insert / claim character spans).
+#   tokens, relative mode (ONLY a KNOWN toy vocabulary below absolute_token_limits_min_vocab, which splits
+#     text into many more pieces): per occurrence |tok(E)-tok(X)| / tok(X) <= max_abs_delta_tokens_frac,
+#     mean of that fraction <= max_mean_abs_delta_tokens_frac, and the claim-start rule per occurrence
+#     |claim_tok_start_E - claim_tok_start_X| / tok(X) <= max_abs_delta_tokens_frac (the same fraction
+#     bounds both token deltas; there is no separate claim-start fraction key).
+XE_MATCH_LIMITS_VERSION = "2026-10-14.1"
+XE_MATCH_LIMITS = {"max_abs_delta_chars": 12, "max_mean_abs_delta_chars": 6.0,
+                   "max_abs_delta_claim_start": 16, "max_abs_delta_claim_tok_start": 8,
                    # token limits: the absolute ones apply to experiment-scale tokenizers (vocab >= 16384,
-                   # e.g. the 32768-vocab nanochat tokenizer); toy tokenizers split text into many more
-                   # pieces, so the relative limits (fraction of the X insert's token length) apply instead
+                   # e.g. the 32768-vocab nanochat tokenizer) and to an unknown vocabulary; toy tokenizers
+                   # split text into many more pieces, so for a KNOWN small vocabulary the relative limits
+                   # (fraction of the X insert's token length) apply instead -- to |dtok| and, per
+                   # occurrence, to the claim-start token delta
                    "max_abs_delta_tokens": 8, "max_mean_abs_delta_tokens": 3.0,
                    "max_abs_delta_tokens_frac": 0.20, "max_mean_abs_delta_tokens_frac": 0.06,
                    "absolute_token_limits_min_vocab": 16384}

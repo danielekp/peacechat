@@ -1,0 +1,688 @@
+{
+  "work": "/tmp/ctx_smoke_fixed",
+  "python": "/home/danielaush/.cache/ctx_cpu_venv/bin/python",
+  "stages": [
+    {
+      "stage": "tokenizer",
+      "seconds": 2.0,
+      "kind": "artifact"
+    },
+    {
+      "stage": "generation",
+      "seconds": 1.4,
+      "protocol": "v2-corrected-2026-10",
+      "counts": {
+        "groups": 40,
+        "pairs": 40,
+        "candidate_statements": 80,
+        "training_groups": 26,
+        "heldout_groups": 14,
+        "injected_statements": 26,
+        "unasserted_rivals": 26,
+        "occurrences": 68,
+        "real_groups": 39,
+        "novel_groups": 1
+      },
+      "xe_within_limits": true,
+      "xe_token_limits_verified": true,
+      "design_cells_empty": [
+        [
+          "animal_class|real|false",
+          "1"
+        ],
+        [
+          "element_melting|real|false",
+          "1"
+        ],
+        [
+          "element_melting|real|true",
+          "1"
+        ],
+        [
+          "element_symbol|real|false",
+          "1"
+        ],
+        [
+          "event_year|novel|unknown",
+          "4"
+        ],
+        [
+          "event_year|real|false",
+          "1"
+        ],
+        [
+          "moon_of|real|false",
+          "4"
+        ],
+        [
+          "planet_position|real|false",
+          "4"
+        ]
+      ],
+      "kind": "artifact"
+    },
+    {
+      "stage": "validation",
+      "seconds": 0.4,
+      "passed": true,
+      "n_checks": 127,
+      "kind": "check"
+    },
+    {
+      "stage": "prepack_preflight",
+      "seconds": 2.0,
+      "n_rows": 534,
+      "num_iterations": 267,
+      "cross_arm": {
+        "n_occurrences": 68,
+        "n_present_in_all_arms": 68,
+        "n_step_agree": 68,
+        "n_row_agree": 68
+      },
+      "loss_weighting": {
+        "note": "scripts/base_train.py computes the loss per micro-batch as the MEAN over that micro-batch's non-masked targets (nanochat.gpt, ignore_index=-1) and averages the grad_accum_steps micro-batch losses; a scored token therefore carries weight 1 / (active targets of its micro-batch * grad_accum_steps). Arms with different active counts in shared rows weight the SAME base tokens differently. This block measures that; nothing changes the objective (docs/EXPOSURE.md, 'Open experimental decision').",
+        "note_distributed": "With world_size > 1 the per-micro-batch mean is taken WITHIN EACH RANK: rank r computes the mean over the non-masked targets of its own (B, T) device batch (rows [r*B, (r+1)*B) of the micro-batch's slice of the epoch order), divides by grad_accum_steps, and the distributed optimizer averages the gradients across ranks (nanochat.optim DistMuonAdamW, ReduceOp.AVG). A scored token on rank r therefore carries weight 1 / (active targets of rank r's micro-batch * grad_accum_steps * world_size). 'per_rank' and 'per_microbatch_rank_local' hold these rank-local denominators, the ones the current objective uses; 'per_microbatch' sums all B*world_size rows of a micro-batch and is the denominator only when world_size == 1.",
+        "objective_in_base_train": "per_microbatch_mean",
+        "config": {
+          "B": 2,
+          "grad_accum_steps": 1,
+          "num_iterations": 267,
+          "world_size": 1,
+          "data_seed": 3,
+          "n_rows": 534,
+          "T": 256
+        },
+        "per_arm": {
+          "C": {
+            "active_targets_total_dataset": 132610,
+            "active_targets_total_in_horizon": 132610,
+            "per_step": {
+              "n": 267,
+              "min": 320.0,
+              "mean": 496.6666666666667,
+              "max": 512.0
+            },
+            "per_microbatch": {
+              "n": 267,
+              "min": 320.0,
+              "mean": 496.6666666666667,
+              "max": 512.0
+            },
+            "microbatches_with_zero_active": 0,
+            "rows_with_zero_active": 0,
+            "per_row": {
+              "n": 534,
+              "min": 116.0,
+              "mean": 248.33333333333334,
+              "max": 256.0
+            },
+            "per_rank": {
+              "0": {
+                "n": 267,
+                "min": 320.0,
+                "mean": 496.6666666666667,
+                "max": 512.0,
+                "total": 132610
+              }
+            },
+            "per_microbatch_rank_local": {
+              "n": 267,
+              "min": 320.0,
+              "mean": 496.6666666666667,
+              "max": 512.0
+            },
+            "rank_local_microbatches_with_zero_active": 0
+          },
+          "R": {
+            "active_targets_total_dataset": 133629,
+            "active_targets_total_in_horizon": 133629,
+            "per_step": {
+              "n": 267,
+              "min": 369.0,
+              "mean": 500.4831460674157,
+              "max": 512.0
+            },
+            "per_microbatch": {
+              "n": 267,
+              "min": 369.0,
+              "mean": 500.4831460674157,
+              "max": 512.0
+            },
+            "microbatches_with_zero_active": 0,
+            "rows_with_zero_active": 0,
+            "per_row": {
+              "n": 534,
+              "min": 143.0,
+              "mean": 250.24157303370785,
+              "max": 256.0
+            },
+            "per_rank": {
+              "0": {
+                "n": 267,
+                "min": 369.0,
+                "mean": 500.4831460674157,
+                "max": 512.0,
+                "total": 133629
+              }
+            },
+            "per_microbatch_rank_local": {
+              "n": 267,
+              "min": 369.0,
+              "mean": 500.4831460674157,
+              "max": 512.0
+            },
+            "rank_local_microbatches_with_zero_active": 0
+          },
+          "X": {
+            "active_targets_total_dataset": 136569,
+            "active_targets_total_in_horizon": 136569,
+            "per_step": {
+              "n": 267,
+              "min": 399.0,
+              "mean": 511.4943820224719,
+              "max": 512.0
+            },
+            "per_microbatch": {
+              "n": 267,
+              "min": 399.0,
+              "mean": 511.4943820224719,
+              "max": 512.0
+            },
+            "microbatches_with_zero_active": 0,
+            "rows_with_zero_active": 0,
+            "per_row": {
+              "n": 534,
+              "min": 143.0,
+              "mean": 255.74719101123594,
+              "max": 256.0
+            },
+            "per_rank": {
+              "0": {
+                "n": 267,
+                "min": 399.0,
+                "mean": 511.4943820224719,
+                "max": 512.0,
+                "total": 136569
+              }
+            },
+            "per_microbatch_rank_local": {
+              "n": 267,
+              "min": 399.0,
+              "mean": 511.4943820224719,
+              "max": 512.0
+            },
+            "rank_local_microbatches_with_zero_active": 0
+          },
+          "E": {
+            "active_targets_total_dataset": 136391,
+            "active_targets_total_in_horizon": 136391,
+            "per_step": {
+              "n": 267,
+              "min": 399.0,
+              "mean": 510.82771535580525,
+              "max": 512.0
+            },
+            "per_microbatch": {
+              "n": 267,
+              "min": 399.0,
+              "mean": 510.82771535580525,
+              "max": 512.0
+            },
+            "microbatches_with_zero_active": 0,
+            "rows_with_zero_active": 0,
+            "per_row": {
+              "n": 534,
+              "min": 143.0,
+              "mean": 255.41385767790263,
+              "max": 256.0
+            },
+            "per_rank": {
+              "0": {
+                "n": 267,
+                "min": 399.0,
+                "mean": 510.82771535580525,
+                "max": 512.0,
+                "total": 136391
+              }
+            },
+            "per_microbatch_rank_local": {
+              "n": 267,
+              "min": 399.0,
+              "mean": 510.82771535580525,
+              "max": 512.0
+            },
+            "rank_local_microbatches_with_zero_active": 0
+          }
+        },
+        "per_row_ratio": {
+          "R/C": {
+            "n_rows_compared": 534,
+            "n_rows_differ": 46,
+            "ratio": {
+              "n": 534,
+              "min": 0.9748743718592965,
+              "mean": 1.0126258515757678,
+              "max": 1.564516129032258
+            },
+            "ratio_on_differing_rows": {
+              "n": 46,
+              "min": 0.9748743718592965,
+              "mean": 1.1465696682926103,
+              "max": 1.564516129032258
+            },
+            "rows_zero_in_one_arm_only": 0,
+            "total_ratio_in_horizon": 1.0076841867129176
+          },
+          "X/C": {
+            "n_rows_compared": 534,
+            "n_rows_differ": 46,
+            "ratio": {
+              "n": 534,
+              "min": 1.0,
+              "mean": 1.0479761620217867,
+              "max": 2.206896551724138
+            },
+            "ratio_on_differing_rows": {
+              "n": 46,
+              "min": 1.1288888888888888,
+              "mean": 1.5569406634703042,
+              "max": 2.206896551724138
+            },
+            "rows_zero_in_one_arm_only": 0,
+            "total_ratio_in_horizon": 1.02985446044793
+          },
+          "E/C": {
+            "n_rows_compared": 534,
+            "n_rows_differ": 46,
+            "ratio": {
+              "n": 534,
+              "min": 1.0,
+              "mean": 1.0458251210833533,
+              "max": 2.086206896551724
+            },
+            "ratio_on_differing_rows": {
+              "n": 46,
+              "min": 1.1377777777777778,
+              "mean": 1.5319698838806686,
+              "max": 2.086206896551724
+            },
+            "rows_zero_in_one_arm_only": 0,
+            "total_ratio_in_horizon": 1.0285121785687354
+          },
+          "X/R": {
+            "n_rows_compared": 534,
+            "n_rows_differ": 46,
+            "ratio": {
+              "n": 534,
+              "min": 1.0,
+              "mean": 1.0301729082367295,
+              "max": 1.6842105263157894
+            },
+            "ratio_on_differing_rows": {
+              "n": 46,
+              "min": 1.1091703056768558,
+              "mean": 1.3502681086611636,
+              "max": 1.6842105263157894
+            },
+            "rows_zero_in_one_arm_only": 0,
+            "total_ratio_in_horizon": 1.0220012123116988
+          },
+          "E/R": {
+            "n_rows_compared": 534,
+            "n_rows_differ": 46,
+            "ratio": {
+              "n": 534,
+              "min": 1.0,
+              "mean": 1.0283014263704644,
+              "max": 1.644736842105263
+            },
+            "ratio_on_differing_rows": {
+              "n": 46,
+              "min": 1.1130434782608696,
+              "mean": 1.3285426452571294,
+              "max": 1.644736842105263
+            },
+            "rows_zero_in_one_arm_only": 0,
+            "total_ratio_in_horizon": 1.0206691661241198
+          },
+          "E/X": {
+            "n_rows_compared": 534,
+            "n_rows_differ": 41,
+            "ratio": {
+              "n": 534,
+              "min": 0.9453125,
+              "mean": 0.9986985803057061,
+              "max": 1.0118577075098814
+            },
+            "ratio_on_differing_rows": {
+              "n": 41,
+              "min": 0.9453125,
+              "mean": 0.983049802030417,
+              "max": 1.0118577075098814
+            },
+            "rows_zero_in_one_arm_only": 0,
+            "total_ratio_in_horizon": 0.9986966295425755
+          }
+        }
+      },
+      "encoding_fingerprint": "6bc6e7acf862a88c61ac2b5ff9108fbfa208312bd27b3f6c4d71185f7696fcd7",
+      "loss_normalization": "fixed_nominal",
+      "loss_denominators": {
+        "per_microbatch_nominal": 512,
+        "per_step_all_ranks_nominal": 512,
+        "note": "fixed_nominal divides each micro-batch's summed token losses by per_microbatch_nominal; microbatch_mean divides by that micro-batch's active targets (see loss_weighting)"
+      },
+      "kind": "check"
+    },
+    {
+      "stage": "stale_preflight_refused_by_launcher",
+      "refused": true,
+      "kind": "check"
+    },
+    {
+      "stage": "uncertified_loss_normalization_refused_by_launcher",
+      "refused": true,
+      "names_policy": true,
+      "kind": "check"
+    },
+    {
+      "stage": "run_arm_C_s7",
+      "seconds": 70.3,
+      "model_tag": "d2_s7",
+      "run_info": "arm_C/run_info_d2_s7.json",
+      "eval_csv": "/tmp/ctx_smoke_fixed/build/eval/seed_7/beliefs_armC.csv",
+      "eval_mode": "model_inference",
+      "n_items": 372,
+      "init_param_sha256": "a03f6a3bf67f393b",
+      "kind": "real_training_and_inference_tiny_model"
+    },
+    {
+      "stage": "run_arm_R_s7",
+      "seconds": 28.1,
+      "model_tag": "d2_s7",
+      "run_info": "arm_R/run_info_d2_s7.json",
+      "eval_csv": "/tmp/ctx_smoke_fixed/build/eval/seed_7/beliefs_armR.csv",
+      "eval_mode": "model_inference",
+      "n_items": 372,
+      "init_param_sha256": "a03f6a3bf67f393b",
+      "kind": "real_training_and_inference_tiny_model"
+    },
+    {
+      "stage": "run_arm_X_s7",
+      "seconds": 35.3,
+      "model_tag": "d2_s7",
+      "run_info": "arm_X/run_info_d2_s7.json",
+      "eval_csv": "/tmp/ctx_smoke_fixed/build/eval/seed_7/beliefs_armX.csv",
+      "eval_mode": "model_inference",
+      "n_items": 372,
+      "init_param_sha256": "a03f6a3bf67f393b",
+      "kind": "real_training_and_inference_tiny_model"
+    },
+    {
+      "stage": "run_arm_E_s7",
+      "seconds": 28.4,
+      "model_tag": "d2_s7",
+      "run_info": "arm_E/run_info_d2_s7.json",
+      "eval_csv": "/tmp/ctx_smoke_fixed/build/eval/seed_7/beliefs_armE.csv",
+      "eval_mode": "model_inference",
+      "n_items": 372,
+      "init_param_sha256": "a03f6a3bf67f393b",
+      "kind": "real_training_and_inference_tiny_model"
+    },
+    {
+      "stage": "run_arm_C_s8",
+      "seconds": 28.2,
+      "model_tag": "d2_s8",
+      "run_info": "arm_C/run_info_d2_s8.json",
+      "eval_csv": "/tmp/ctx_smoke_fixed/build/eval/seed_8/beliefs_armC.csv",
+      "eval_mode": "model_inference",
+      "n_items": 372,
+      "init_param_sha256": "99f6ae2916211a70",
+      "kind": "real_training_and_inference_tiny_model"
+    },
+    {
+      "stage": "run_arm_R_s8",
+      "seconds": 26.3,
+      "model_tag": "d2_s8",
+      "run_info": "arm_R/run_info_d2_s8.json",
+      "eval_csv": "/tmp/ctx_smoke_fixed/build/eval/seed_8/beliefs_armR.csv",
+      "eval_mode": "model_inference",
+      "n_items": 372,
+      "init_param_sha256": "99f6ae2916211a70",
+      "kind": "real_training_and_inference_tiny_model"
+    },
+    {
+      "stage": "run_arm_X_s8",
+      "seconds": 27.7,
+      "model_tag": "d2_s8",
+      "run_info": "arm_X/run_info_d2_s8.json",
+      "eval_csv": "/tmp/ctx_smoke_fixed/build/eval/seed_8/beliefs_armX.csv",
+      "eval_mode": "model_inference",
+      "n_items": 372,
+      "init_param_sha256": "99f6ae2916211a70",
+      "kind": "real_training_and_inference_tiny_model"
+    },
+    {
+      "stage": "run_arm_E_s8",
+      "seconds": 52.2,
+      "model_tag": "d2_s8",
+      "run_info": "arm_E/run_info_d2_s8.json",
+      "eval_csv": "/tmp/ctx_smoke_fixed/build/eval/seed_8/beliefs_armE.csv",
+      "eval_mode": "model_inference",
+      "n_items": 372,
+      "init_param_sha256": "99f6ae2916211a70",
+      "kind": "real_training_and_inference_tiny_model"
+    },
+    {
+      "stage": "matched_initialization",
+      "identical_init_param_sha256_across_arms_per_seed": true,
+      "distinct_across_seeds": true,
+      "kind": "check"
+    },
+    {
+      "stage": "replicates_separate_outputs",
+      "run_info_files": {
+        "C": [
+          "run_info_d2_s7.json",
+          "run_info_d2_s8.json"
+        ],
+        "R": [
+          "run_info_d2_s7.json",
+          "run_info_d2_s8.json"
+        ],
+        "X": [
+          "run_info_d2_s7.json",
+          "run_info_d2_s8.json"
+        ],
+        "E": [
+          "run_info_d2_s7.json",
+          "run_info_d2_s8.json"
+        ]
+      },
+      "eval_dirs": [
+        "eval/seed_7",
+        "eval/seed_8"
+      ],
+      "links_rows": 8,
+      "kind": "check"
+    },
+    {
+      "stage": "interrupt_resume_C",
+      "seconds": 28.9,
+      "resume_from_step": 133,
+      "loader_state_identical_at_end": true,
+      "init_identity_preserved": true,
+      "kind": "check"
+    },
+    {
+      "stage": "resume_with_changed_accumulation_refused",
+      "refused": true,
+      "no_checkpoint_written": true,
+      "kind": "check"
+    },
+    {
+      "stage": "resume_with_changed_loss_normalization_refused",
+      "refused": true,
+      "no_checkpoint_written": true,
+      "kind": "check"
+    },
+    {
+      "stage": "eval_plumbing_C",
+      "seconds": 1.9,
+      "mode": "dry_run_mock_scores",
+      "n_items": 372,
+      "coverage_complete": true,
+      "kind": "plumbing_mock_scores"
+    },
+    {
+      "stage": "eval_plumbing_R",
+      "seconds": 1.9,
+      "mode": "dry_run_mock_scores",
+      "n_items": 372,
+      "coverage_complete": true,
+      "kind": "plumbing_mock_scores"
+    },
+    {
+      "stage": "eval_plumbing_X",
+      "seconds": 1.9,
+      "mode": "dry_run_mock_scores",
+      "n_items": 372,
+      "coverage_complete": true,
+      "kind": "plumbing_mock_scores"
+    },
+    {
+      "stage": "eval_plumbing_E",
+      "seconds": 1.9,
+      "mode": "dry_run_mock_scores",
+      "n_items": 372,
+      "coverage_complete": true,
+      "kind": "plumbing_mock_scores"
+    },
+    {
+      "stage": "analysis_real_two_replicates",
+      "seconds": 7.2,
+      "outputs": [
+        "analysis.md",
+        "analysis.txt",
+        "cohorts",
+        "compatibility.json",
+        "figures",
+        "tables"
+      ],
+      "cohorts": [
+        "all_injected",
+        "counterfact",
+        "exclusive_value",
+        "heldout_claims",
+        "heldout_groups",
+        "heldout_groups_both",
+        "heldout_rivals",
+        "paraphrase_historical_reference",
+        "paraphrase_wellformed",
+        "rival_untrained"
+      ],
+      "compatibility_ok": true,
+      "modes": [
+        "model_inference"
+      ],
+      "replicates": [
+        "seed_7",
+        "seed_8"
+      ],
+      "inputs_bound": {
+        "seed_7/C": true,
+        "seed_7/E": true,
+        "seed_7/R": true,
+        "seed_7/X": true,
+        "seed_8/C": true,
+        "seed_8/E": true,
+        "seed_8/R": true,
+        "seed_8/X": true
+      },
+      "n_items_with_identity": 372,
+      "n_item_identity_mismatches": 0,
+      "replicate_table_rows": 1116,
+      "kind": "real_inference_tiny_model"
+    },
+    {
+      "stage": "analysis_refuses_mixed_mock_and_real_across_replicates",
+      "refused": true,
+      "cross_replicate_violation": true,
+      "kind": "check"
+    },
+    {
+      "stage": "analysis_refuses_foreign_probe_files",
+      "refused": true,
+      "binding_violation": true,
+      "kind": "check"
+    }
+  ],
+  "seeds": {
+    "data_seed_build": 0,
+    "init_seed": 7,
+    "data_seed_loader": 3,
+    "recorded_in_meta": {
+      "seed_7": {
+        "C": {
+          "init_seed": 7,
+          "data_seed": 3,
+          "data_loader": "prepacked",
+          "init_param_sha256": "a03f6a3bf67f393b",
+          "encoding_fingerprint": "6bc6e7acf862a88c"
+        },
+        "R": {
+          "init_seed": 7,
+          "data_seed": 3,
+          "data_loader": "prepacked",
+          "init_param_sha256": "a03f6a3bf67f393b",
+          "encoding_fingerprint": "6bc6e7acf862a88c"
+        },
+        "X": {
+          "init_seed": 7,
+          "data_seed": 3,
+          "data_loader": "prepacked",
+          "init_param_sha256": "a03f6a3bf67f393b",
+          "encoding_fingerprint": "6bc6e7acf862a88c"
+        },
+        "E": {
+          "init_seed": 7,
+          "data_seed": 3,
+          "data_loader": "prepacked",
+          "init_param_sha256": "a03f6a3bf67f393b",
+          "encoding_fingerprint": "6bc6e7acf862a88c"
+        }
+      },
+      "seed_8": {
+        "C": {
+          "init_seed": 8,
+          "data_seed": 3,
+          "data_loader": "prepacked",
+          "init_param_sha256": "99f6ae2916211a70",
+          "encoding_fingerprint": "6bc6e7acf862a88c"
+        },
+        "R": {
+          "init_seed": 8,
+          "data_seed": 3,
+          "data_loader": "prepacked",
+          "init_param_sha256": "99f6ae2916211a70",
+          "encoding_fingerprint": "6bc6e7acf862a88c"
+        },
+        "X": {
+          "init_seed": 8,
+          "data_seed": 3,
+          "data_loader": "prepacked",
+          "init_param_sha256": "99f6ae2916211a70",
+          "encoding_fingerprint": "6bc6e7acf862a88c"
+        },
+        "E": {
+          "init_seed": 8,
+          "data_seed": 3,
+          "data_loader": "prepacked",
+          "init_param_sha256": "99f6ae2916211a70",
+          "encoding_fingerprint": "6bc6e7acf862a88c"
+        }
+      }
+    }
+  },
+  "loss_normalization": "fixed_nominal"
+}

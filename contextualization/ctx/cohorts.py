@@ -11,12 +11,21 @@ Cohorts (built from the probe files, plus the manifest when one is given)
                         the same semantic group (the legacy "clean" subset; review finding 2)
   exclusive_value       injected facts for which NO other value of the same group was injected
                         (the 2026-10-13 audit's "strict" set: 740 facts on the historical data)
-  heldout_claims        all held-out synthetic facts
-  heldout_groups        held-out facts whose group has no injected member
+  heldout_claims        held-out synthetic facts, ONE record per wholly held-out group (oriented as
+                        heldout_groups) plus every heldout_rivals record
+  heldout_groups        held-out facts whose group has no injected member, ONE stable orientation
+                        per group (review 2026-10-14 finding 8)
+  heldout_groups_both   the raw two-record view of the same groups (both reciprocal candidates;
+                        signed means cancel by construction -- see its definition)
   heldout_rivals        held-out facts whose group HAS an injected member (v2 role unasserted_rival)
   counterfact           the CounterFact probe records
-  paraphrase_wellformed injected facts whose held-out-paraphrase contrast is well formed
-                        (review finding 8; 104 malformed on the historical data)
+  paraphrase_wellformed injected facts whose held-out-paraphrase contrast is well formed in the
+                        evaluation being analysed: every paraphrase row of an eval-schema-v2 CSV
+                        (both candidates rendered structurally); for legacy CSVs the historical
+                        reference below
+  paraphrase_historical_reference
+                        the probe-derived legacy well-formedness (review 2026-10-13 finding 8;
+                        104 malformed on the historical data) kept for historical comparison
 
 Semantic group: ``group_id`` when the record carries one (v2), else
 ``stable_id(relation, subject)`` (v1), the same key the auditor used as ``(relation, subject)``.
@@ -39,11 +48,19 @@ from dataclasses import dataclass, field
 from .factpool import _build_relations, training_surface_forms
 from .protocol import PROTOCOL_V1, PROTOCOL_V2, ProtocolError
 from .rng import stable_id
+from .templates import _pick
 
 COHORT_NAMES = ("all_injected", "rival_untrained", "exclusive_value", "heldout_claims", "heldout_groups",
-                "heldout_rivals", "counterfact", "paraphrase_wellformed")
+                "heldout_groups_both", "heldout_rivals", "counterfact", "paraphrase_wellformed",
+                "paraphrase_historical_reference")
 INJECTED_COHORTS = ("all_injected", "rival_untrained", "exclusive_value")
-HELDOUT_COHORTS = ("heldout_claims", "heldout_groups", "heldout_rivals")
+HELDOUT_COHORTS = ("heldout_claims", "heldout_groups", "heldout_groups_both", "heldout_rivals")
+PARAPHRASE_COHORTS = ("paraphrase_wellformed", "paraphrase_historical_reference")
+
+HELDOUT_BOTH_WARNING = ("WARNING: the two reciprocal candidates of a group are scored on the same prompt with the "
+                        "candidates swapped, so their signed beliefs are exact negatives and every signed mean, "
+                        "interval, paired difference and TOST verdict of this cohort is zero BY CONSTRUCTION; never "
+                        "read them as stability or absence of spillover.")
 
 COHORT_DEFINITIONS = {
     "all_injected": "Every injected synthetic fact (v2: role == injected).",
@@ -53,20 +70,42 @@ COHORT_DEFINITIONS = {
     "exclusive_value": "Injected facts for which no OTHER value of the same semantic group was injected: the "
                        "set of injected values of the group is exactly {value}. Equals the 2026-10-13 audit's "
                        "strict_clean set.",
-    "heldout_claims": "All held-out synthetic facts (never injected in any arm), whether or not their group "
-                      "has an injected member.",
+    "heldout_claims": "Held-out synthetic facts (never injected in any arm): ONE record per wholly held-out "
+                      "group (the heldout_groups orientation) plus every heldout_rivals record. The reciprocal "
+                      "candidates dropped by the orientation are listed as exclusions (group_orientation); the "
+                      "raw two-record view of the wholly held-out groups is heldout_groups_both.",
     "heldout_groups": "Held-out synthetic facts whose semantic group has NO injected member (wholly unseen "
-                      "subject/relation).",
+                      "subject/relation), ONE stable orientation per group (review 2026-10-14 finding 8): real "
+                      "groups keep the truth_value == 'true' candidate, synthetic groups the candidate_slot == 'a' "
+                      "candidate (legacy v1 groups with several or no 'true'-labelled records keep the smallest "
+                      "fact_id). The orientation depends only on the probe records, so it is identical across "
+                      "arms, replicates and seeds. Signed means, |delta| and preference flips are therefore "
+                      "counted once per group; the dropped reciprocal candidates are listed as exclusions.",
+    "heldout_groups_both": "RAW two-record view of the wholly held-out groups: every held-out fact whose "
+                           "semantic group has NO injected member, BOTH reciprocal candidates included (the "
+                           "historical July-2026 definition). " + HELDOUT_BOTH_WARNING + " Use heldout_groups "
+                           "(one orientation per group) for signed means and preference flips; this cohort "
+                           "exists only for raw record counts and the historical comparison.",
     "heldout_rivals": "Held-out synthetic facts whose semantic group HAS at least one injected member (v2 "
                       "role unasserted_rival): an untrained claim about a trained subject.",
     "counterfact": "CounterFact probe records (external, never injected); value = the true object, "
                    "competing_value = the counterfactual object. v1 ids are counterfact_<idx:05d> by position "
                    "in heldout_facts.jsonl, exactly as the legacy evaluator assigned them.",
-    "paraphrase_wellformed": "Injected facts whose held-out-paraphrase contrast is well formed. v2: every "
-                             "paraphrase row carries explicit value spans, so all injected facts with a "
-                             "reserved paraphrase qualify. v1: the legacy evaluator built the competing "
-                             "sentence as para.replace(value, competing, 1); a fact qualifies only when that "
-                             "string equals the relation frame rendered with competing_value.",
+    "paraphrase_wellformed": "Injected facts whose held-out-paraphrase contrast is well formed IN THE EVALUATION "
+                             "BEING ANALYSED (CSV-aware). Eval-schema-v2 CSVs: the corrected evaluator renders "
+                             "both candidates structurally from the relation frame (every value slot replaced, "
+                             "subject untouched; its legacy_malformed column only flags what the historical "
+                             "str.replace evaluator got wrong), so every injected fact with a paraphrase row in "
+                             "the CSVs qualifies. Legacy CSVs (or no CSV information): equals "
+                             "paraphrase_historical_reference.",
+    "paraphrase_historical_reference": "Injected facts whose held-out-paraphrase contrast was well formed under "
+                                       "the HISTORICAL evaluator (probe-derived, CSV-independent; kept for the "
+                                       "historical comparison). v1 probes: the legacy evaluator built the "
+                                       "competing sentence as para.replace(value, competing, 1); a fact qualifies "
+                                       "only when that string equals the relation frame rendered with "
+                                       "competing_value (review 2026-10-13 finding 8: 104 malformed on the "
+                                       "historical data). v2 probes: every injected fact with a reserved "
+                                       "paraphrase (explicit value spans).",
 }
 
 
@@ -229,9 +268,64 @@ def _mk(name, probe_set, protocol, kept, excluded, details=None) -> Cohort:
                   facts={r["fact_id"]: r for r in kept}, details=details or {})
 
 
-def build_cohorts(probes: ProbeSet, exclude=frozenset(), exclude_reason: str = "excluded via --exclude-facts") -> dict:
+def orient_heldout_groups(records) -> tuple:
+    """ONE stable orientation per semantic group of held-out records (review 2026-10-14 finding 8).
+
+    The two candidates of a wholly held-out group are scored on the same prompt with the
+    candidates swapped, so their signed beliefs are exact negatives: pooling both forces every
+    signed mean to zero. Per group the record kept is, in this order of rules
+      ``truth_true``   the only record with truth_value == "true" (real-world groups; v1 records,
+                       which all carry a legacy true/false label);
+      ``slot_a``       the only record with candidate_slot == "a" (synthetic v2 groups, whose
+                       truth_value is "unknown" for both candidates);
+      ``min_fact_id``  the smallest fact_id (legacy v1 groups holding several pairs, i.e. several
+                       or no "true"-labelled records);
+      ``single``       the group has one record.
+    The rule reads probe records only, so the orientation is identical across arms, replicates
+    and seeds. Returns (kept records in input order, exclusions for the dropped reciprocal
+    candidates, details {"by_rule": counts, "groups": {group_id: {kept, dropped, rule}}})."""
+    by_group = defaultdict(list)
+    for r in records:
+        by_group[r["group_id"]].append(r)
+    keep_ids, details, by_rule = {}, {}, Counter()
+    for gid, recs in by_group.items():
+        if len(recs) == 1:
+            chosen, rule = recs[0], "single"
+        else:
+            trues = [r for r in recs if str(r.get("truth_value", "")) == "true"]
+            slot_a = [r for r in recs if str(r.get("candidate_slot", "")) == "a"]
+            if len(trues) == 1:
+                chosen, rule = trues[0], "truth_true"
+            elif len(slot_a) == 1:
+                chosen, rule = slot_a[0], "slot_a"
+            else:
+                chosen, rule = min(recs, key=lambda r: str(r["fact_id"])), "min_fact_id"
+        keep_ids[chosen["fact_id"]] = (gid, rule)
+        by_rule[rule] += 1
+        details[gid] = {"kept": chosen["fact_id"], "dropped": [r["fact_id"] for r in recs if r is not chosen], "rule": rule}
+    kept, excl = [], []
+    for r in records:
+        if r["fact_id"] in keep_ids:
+            kept.append(r)
+        else:
+            gid = r["group_id"]
+            excl.append({"fact_id": r["fact_id"],
+                         "reason": f"group_orientation: group {gid} keeps {details[gid]['kept']} ({details[gid]['rule']}); "
+                                   f"this record is its reciprocal candidate"})
+    return kept, excl, {"by_rule": dict(by_rule), "groups": details}
+
+
+def build_cohorts(probes: ProbeSet, exclude=frozenset(), exclude_reason: str = "excluded via --exclude-facts",
+                  eval_info: dict | None = None) -> dict:
     """Build every cohort in COHORT_NAMES. ``exclude`` drops fact ids from all cohorts (recorded as
-    exclusions with ``exclude_reason``)."""
+    exclusions with ``exclude_reason``).
+
+    ``eval_info`` makes ``paraphrase_wellformed`` CSV-aware: ``{"eval_schema": int,
+    "paraphrase_fact_ids": set | None, "legacy_malformed_fact_ids": set}`` as
+    ``analyze_beliefs.eval_info_from_replicates`` derives it from the arm CSVs. With
+    ``eval_schema >= 2`` every injected fact with a paraphrase row in the CSVs is well formed by
+    construction; otherwise (legacy CSVs, or no eval_info) the cohort equals
+    ``paraphrase_historical_reference``."""
     exclude = set(exclude or ())
     protocol = probes.protocol
     inj_vals = injected_values_by_group(probes)
@@ -279,7 +373,6 @@ def build_cohorts(probes: ProbeSet, exclude=frozenset(), exclude_reason: str = "
 
     # held-out cohorts ---------------------------------------------------------------
     held, excl_h = flag_excluded(probes.heldout)
-    cohorts["heldout_claims"] = _mk("heldout_claims", "heldout", protocol, held, excl_h)
     role_mismatch = []
     groups_k, groups_x, rivals_k, rivals_x = [], list(excl_h), [], list(excl_h)
     for r in held:
@@ -295,16 +388,27 @@ def build_cohorts(probes: ProbeSet, exclude=frozenset(), exclude_reason: str = "
         else:
             groups_k.append(r)
             rivals_x.append({"fact_id": r["fact_id"], "reason": "group_has_no_injected_member"})
-    cohorts["heldout_groups"] = _mk("heldout_groups", "heldout", protocol, groups_k, groups_x,
-                                    details={"role_mismatch_fact_ids": role_mismatch})
+    # finding 8 (2026-10-14): one orientation per wholly held-out group; the raw view is kept apart
+    oriented, orient_x, orientation = orient_heldout_groups(groups_k)
+    orient_ids = {e["fact_id"] for e in orient_x}
+    cohorts["heldout_groups_both"] = _mk("heldout_groups_both", "heldout", protocol, groups_k, groups_x,
+                                         details={"role_mismatch_fact_ids": role_mismatch, "warning": HELDOUT_BOTH_WARNING})
+    cohorts["heldout_groups"] = _mk("heldout_groups", "heldout", protocol, oriented, groups_x + orient_x,
+                                    details={"role_mismatch_fact_ids": role_mismatch, "orientation": orientation,
+                                             "n_groups_oriented": len(orientation["groups"]),
+                                             "n_reciprocal_dropped": len(orient_x)})
     cohorts["heldout_rivals"] = _mk("heldout_rivals", "heldout", protocol, rivals_k, rivals_x,
                                     details={"role_mismatch_fact_ids": role_mismatch})
+    claims_k = [r for r in held if r["fact_id"] not in orient_ids]
+    cohorts["heldout_claims"] = _mk("heldout_claims", "heldout", protocol, claims_k, excl_h + orient_x,
+                                    details={"orientation": orientation, "n_groups_oriented": len(orientation["groups"]),
+                                             "n_reciprocal_dropped": len(orient_x), "n_rivals": len(rivals_k)})
 
     # counterfact --------------------------------------------------------------------
     cf, excl_cf = flag_excluded(probes.counterfact)
     cohorts["counterfact"] = _mk("counterfact", "counterfact", protocol, cf, excl_cf)
 
-    # paraphrase_wellformed ----------------------------------------------------------
+    # paraphrase_historical_reference (probe-derived, CSV-independent) ------------------
     kept, ex, checks = [], list(excl), {}
     relations = {rel.key: rel for rel in _build_relations()}
     for r in inj:
@@ -327,15 +431,44 @@ def build_cohorts(probes: ProbeSet, exclude=frozenset(), exclude_reason: str = "
             ex.append({"fact_id": r["fact_id"],
                        "reason": f"malformed_paraphrase_contrast: legacy replace gave {chk['actual_competing']!r}, "
                                  f"frame renders {chk['expected_competing']!r}"})
-    cohorts["paraphrase_wellformed"] = _mk(
-        "paraphrase_wellformed", "injected", protocol, kept, ex,
-        details={"malformed_fact_ids": sorted(f for f, c in checks.items() if not c["well_formed"]),
-                 "check": "v2: explicit value spans" if probes.is_v2 else "v1: legacy replace vs frame re-rendering"})
-    return cohorts
+    malformed = sorted(f for f, c in checks.items() if not c["well_formed"])
+    hist_details = {"malformed_fact_ids": malformed,
+                    "check": "v2: explicit value spans" if probes.is_v2 else "v1: legacy replace vs frame re-rendering"}
+    cohorts["paraphrase_historical_reference"] = _mk("paraphrase_historical_reference", "injected", protocol, kept, ex,
+                                                     details=dict(hist_details))
+
+    # paraphrase_wellformed (CSV-aware) --------------------------------------------------
+    info = eval_info or {}
+    eval_schema = int(info.get("eval_schema") or 1)
+    para_ids = info.get("paraphrase_fact_ids")
+    if eval_schema >= 2 and para_ids is not None:
+        para_ids = set(para_ids)
+        kept2, ex2 = [], list(excl)
+        for r in inj:
+            if not r.get("heldout_paraphrase"):
+                ex2.append({"fact_id": r["fact_id"], "reason": "no_heldout_paraphrase"})
+            elif r["fact_id"] not in para_ids:
+                ex2.append({"fact_id": r["fact_id"], "reason": "no_paraphrase_row_in_eval: no scored heldout_paraphrase "
+                                                                 "row in the eval-schema-v2 CSVs (see missingness)"})
+            else:
+                kept2.append(r)
+        details2 = {"basis": "eval_schema_v2: every paraphrase row is rendered structurally by the corrected evaluator "
+                             "(both candidates from the relation frame); historical malformedness does not apply",
+                    "eval_schema": eval_schema,
+                    "historical_reference_malformed_fact_ids": malformed,
+                    "n_historical_malformed_included": sum(1 for f in malformed if f in para_ids),
+                    "legacy_malformed_flagged_fact_ids": sorted(info.get("legacy_malformed_fact_ids") or [])}
+    else:
+        kept2, ex2 = list(kept), list(ex)
+        details2 = {"basis": "legacy_eval: equals paraphrase_historical_reference (legacy CSVs or no eval information)",
+                    "eval_schema": eval_schema, **hist_details}
+    cohorts["paraphrase_wellformed"] = _mk("paraphrase_wellformed", "injected", protocol, kept2, ex2, details=details2)
+    return {name: cohorts[name] for name in COHORT_NAMES}
 
 
 def malformed_paraphrase_ids(cohorts: dict) -> list:
-    return list(cohorts["paraphrase_wellformed"].details.get("malformed_fact_ids", []))
+    """The probe-derived (historical-evaluator) malformed paraphrase contrasts."""
+    return list(cohorts["paraphrase_historical_reference"].details.get("malformed_fact_ids", []))
 
 
 # --------------------------------------------------------------------------------------
@@ -381,7 +514,8 @@ class _FormsView:
         self.truth_value = rec.get("truth_value", "?")
 
 
-PARAPHRASE_POLICIES = ("cycle_from_zero", "seeded_start", "fixed")
+PARAPHRASE_POLICIES = ("cycle_from_zero", "seeded_start", "random", "fixed")
+PARAPHRASE_STREAM = "render.v2.paraphrase"      # the renderer's RNG stream name (ctx.templates._render_v2)
 
 
 def _open_text(path):
@@ -437,11 +571,15 @@ def realized_training_forms(record: dict, protocol_cfg: dict | None = None, expo
       1. ``manifest_rows`` (manifest v2 rows of this fact with ``paraphrase_index``): the index is
          taken into ``surface_forms`` (the frame-ordered list the schema defines; the reserved
          ``heldout_paraphrase_index`` indexes the same list). Preferred for ANY protocol when present.
-      2. v1 / render_policy["paraphrase"] == "cycle_from_zero": the legacy ``render_raw`` rule --
-         ``forms = training_surface_forms(record)`` (surface forms minus the reserved paraphrase),
-         occurrence ``occ`` uses ``forms[occ % len(forms)]`` for ``occ < assigned_frequency``.
-      3. "fixed": every occurrence uses ``forms[render_policy.get("paraphrase_fixed_index", 0)]``.
-      4. "seeded_start": NOT derivable without the manifest -> ProtocolError.
+      2. v1: the legacy ``render_raw`` rule -- ``forms = training_surface_forms(record)`` (surface
+         forms minus the reserved paraphrase), occurrence ``occ`` uses ``forms[occ % len(forms)]``
+         for ``occ < assigned_frequency``.
+      3. v2 without manifest: the renderer's own index rule (review 2026-10-14 finding 17) --
+         ``forms[_pick(policy, len(forms), occ, seed, fact_id, "render.v2.paraphrase")]`` with
+         ``ctx.templates._pick`` for policy ``cycle_from_zero`` / ``seeded_start`` / ``random`` /
+         ``fixed`` and ``seed = protocol_cfg["seed"]`` (the build seed). ``forms`` is in the
+         same order as the renderer's ``training_frame_indices``. A seeded policy without a
+         seed raises ProtocolError: the form is never silently assumed to be index 0.
     ``exposure_rows`` (exposure index v1 rows of this fact for one arm) keeps only occurrences
     with ``status == "complete"`` and ``step >= 0`` -- the wording the model was actually scored
     on; without it the nominal (manifest/policy) occurrences are returned.
@@ -470,18 +608,21 @@ def realized_training_forms(record: dict, protocol_cfg: dict | None = None, expo
                 raise ProtocolError(f"{record.get('fact_id')}: occurrence {occ} has different paraphrase indices across arms")
             occ_form[occ] = forms_all[pi]
     else:
-        if protocol == PROTOCOL_V1 or policy in (None, "cycle_from_zero"):
-            if protocol == PROTOCOL_V2 and policy is None:
-                raise ProtocolError("v2 record without manifest paraphrase indices needs protocol_cfg['render_policy']['paraphrase']")
+        if protocol == PROTOCOL_V1:
             occ_form = {occ: allowed[occ % len(allowed)] for occ in range(dose)}
-        elif policy == "fixed":
-            idx = int(policy_cfg.get("paraphrase_fixed_index", 0))
-            occ_form = {occ: allowed[idx % len(allowed)] for occ in range(dose)}
-        elif policy == "seeded_start":
-            raise ProtocolError("render_policy paraphrase='seeded_start' requires per-occurrence paraphrase_index "
-                                "from manifest v2 (pass --manifest)")
-        else:
+        elif policy is None:
+            raise ProtocolError("v2 record without manifest paraphrase indices needs protocol_cfg['render_policy']['paraphrase']")
+        elif policy not in PARAPHRASE_POLICIES:
             raise ProtocolError(f"unknown paraphrase render policy {policy!r}; known: {PARAPHRASE_POLICIES}")
+        else:
+            seed = cfg.get("seed")
+            if policy != "cycle_from_zero" and seed is None:
+                raise ProtocolError(f"render_policy paraphrase={policy!r} needs the build seed (protocol_cfg['seed']) "
+                                    f"to reconstruct the rendered form; pass --build-summary or --manifest (the form "
+                                    f"is never assumed to be index 0)")
+            fid = str(record.get("fact_id"))
+            seed = 0 if seed is None else int(seed)
+            occ_form = {occ: allowed[_pick(policy, len(allowed), occ, seed, fid, PARAPHRASE_STREAM)] for occ in range(dose)}
 
     if exposure_rows is not None:
         kept = sorted({int(r["occurrence"]) for r in exposure_rows

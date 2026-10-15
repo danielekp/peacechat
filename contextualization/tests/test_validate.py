@@ -110,8 +110,17 @@ def small_tokenizer_src(tmp_path_factory, small_bpe_tokenizer):
 
 
 @pytest.fixture(scope="module")
-def v2_build(tmp_path_factory, base_cache):
+def v2_build(tmp_path_factory, base_cache, small_tokenizer_src):
+    """A v2 build WITH the (small, real BPE) training tokenizer: the builder matches X/E in tokens
+    with it and copies it into every arm, so the validator can verify the token limits."""
     out = tmp_path_factory.mktemp("v2")
+    build(out, base_cache, V2_ARGV, ["--tokenizer-src", str(small_tokenizer_src)])
+    return out
+
+
+@pytest.fixture(scope="module")
+def v2_build_no_tokenizer(tmp_path_factory, base_cache):
+    out = tmp_path_factory.mktemp("v2notok")
     build(out, base_cache, V2_ARGV)
     return out
 
@@ -155,10 +164,28 @@ def test_fresh_v2_build_passes(v2_build):
                 "7.heldout_claims", "7.rivals_unasserted", "7.heldout_subjects_novel", "8.char_length", "8.claim_start",
                 "10.counts"):
         assert st.get(cid) == "PASS", (cid, st.get(cid))
-    assert st["9.identity"] == "SKIP" and st["8.token_length"] == "SKIP"      # no tokenizer in this build
+    assert st["8.token_length"] == "PASS" and st.get("9.pkl_identical") == "PASS"   # tokens verified with the build's tokenizer
+    # recheck 2026-10-14: the claim-start token rule is checked too, and the report says which limit
+    # mode (toy relative here: a KNOWN 768-token vocabulary), vocabulary and limits version were used
+    nums = {c["id"]: c["numbers"] for c in rep["checks"]}
+    assert st["8.claim_tok_start"] == "PASS"
+    for cid in ("8.token_length", "8.claim_tok_start", "9.tokenizer_load"):
+        assert nums[cid]["token_limit_mode"] == "relative" and nums[cid]["tokenizer_vocab"] == 768, cid
+        assert nums[cid]["limits_version"] == validate._T.XE_MATCH_LIMITS_VERSION == "2026-10-14.1", cid
+    assert 0 <= nums["8.claim_tok_start"]["max_abs_delta_claim_tok_start_frac"] <= validate.XE_MATCH_LIMITS["max_abs_delta_tokens_frac"]
+    assert "max_abs_delta_claim_tok_start" in nums["8.claim_tok_start"]
     assert (v2_build / "validation_report.json").exists()
     # every check carries numbers / exclusions fields and a section
     assert all({"id", "section", "status", "message", "numbers", "exclusions"} <= set(c) for c in rep["checks"])
+
+
+def test_v2_build_with_E_fails_without_a_tokenizer(v2_build_no_tokenizer):
+    """Second review, finding 15: character-only diagnostics must not pass as token verification."""
+    code, rep = run(v2_build_no_tokenizer)
+    assert code == 1 and status(rep)["8.token_length"] == "FAIL"
+    assert status(rep)["8.char_length"] == "PASS"
+    summary = json.loads((v2_build_no_tokenizer / "build_summary.json").read_text())
+    assert summary["xe_diagnostics"]["token_limits_verified"] is False and summary["xe_diagnostics"]["within_limits"] is False
 
 
 def test_fresh_v1_build_passes(v1_build):
@@ -311,3 +338,71 @@ def test_held_out_claim_leaked_into_an_insert(v2_copy):
     assert "7.heldout_claims" in f
     if target["entity_tier"] == "novel":
         assert "7.heldout_subjects_novel" in f
+
+
+# ---------------------------------------------------------------------------------------------
+# recheck 2026-10-14 finding 7: the validator's tokenizer path and the limit mode
+
+def test_validator_fallback_loader_reports_the_true_vocabulary_and_selects_the_same_limits(v2_build, v2_copy, monkeypatch):
+    """validate._load_tokenizer goes through ctx.tokenizers: the pickle fallback (nanochat.tokenizer not
+    importable, as in the lightweight build environment) reports the TRUE vocabulary, so both loader
+    paths select the same limit mode (the toy tokenizer here -> relative) and the same verdicts."""
+    import builtins
+    from ctx.tokenizers import token_limit_mode
+    tok_dir = v2_build / "arm_C" / "tokenizer"
+    normal, how = validate._load_tokenizer(tok_dir)
+    assert how == "nanochat.tokenizer.RustBPETokenizer" and normal.get_vocab_size() == 768
+    orig_import = builtins.__import__
+
+    def missing_nanochat(name, *args, **kwargs):
+        if name == "nanochat.tokenizer":
+            raise ModuleNotFoundError("No module named 'tokenizers'")
+        return orig_import(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, "__import__", missing_nanochat)
+    fb, how_fb = validate._load_tokenizer(tok_dir)
+    assert how_fb == "pickle fallback (ModuleNotFoundError: No module named 'tokenizers')"
+    assert fb.get_vocab_size() == 768 and hasattr(fb, "decode")
+    assert fb.encode("The capital of Valdorra is Tessmoor.") == normal.encode("The capital of Valdorra is Tessmoor.")
+    assert token_limit_mode(fb.get_vocab_size()) == token_limit_mode(normal.get_vocab_size()) == "relative"
+    # the whole validator through the fallback path: same mode, same PASS verdicts
+    code, rep = run(v2_copy)
+    assert code == 0, failed(rep)
+    st, nums = status(rep), {c["id"]: c["numbers"] for c in rep["checks"]}
+    assert st["8.token_length"] == "PASS" and st["8.claim_tok_start"] == "PASS"
+    for cid in ("8.token_length", "8.claim_tok_start", "9.tokenizer_load"):
+        assert nums[cid]["token_limit_mode"] == "relative" and nums[cid]["tokenizer_vocab"] == 768, cid
+    load_note = [c for c in rep["checks"] if c["id"] == "9.tokenizer_load"][0]["message"]
+    assert "pickle fallback" in load_note and "vocab 768" in load_note and "token limit mode relative" in load_note
+    # and the numbers equal the ones the normal path produced for the fixture
+    normal_rep = json.loads((v2_build / "validation_report.json").read_text())
+    normal_nums = {c["id"]: c["numbers"] for c in normal_rep["checks"]}
+    for cid in ("8.token_length", "8.claim_tok_start"):
+        assert nums[cid] == normal_nums[cid], cid
+
+
+def test_validator_unknown_vocabulary_selects_absolute_limits_never_relative(v2_copy, monkeypatch):
+    """A tokenizer object without get_vocab_size (vocabulary unknown) is checked against the ABSOLUTE
+    limits; the old fallback had no get_vocab_size, was read as vocabulary 0 and was granted the toy
+    relative limits (it accepted a 9-token delta on fact 52df0467bbf5445e as 9/49 < 20%)."""
+    from ctx.tokenizers import token_limit_mode, vocab_size_of
+    real, _ = validate._load_tokenizer(v2_copy / "arm_C" / "tokenizer")
+
+    class NoVocab:
+        def encode(self, s):
+            return real.encode(s)
+    assert vocab_size_of(NoVocab()) is None and token_limit_mode(None) == "absolute" and token_limit_mode(0) == "absolute"
+    monkeypatch.setattr(validate, "_load_tokenizer", lambda d: (NoVocab(), "monkeypatched loader without get_vocab_size"))
+    code, rep = run(v2_copy)
+    st, nums = status(rep), {c["id"]: c["numbers"] for c in rep["checks"]}
+    for cid in ("8.token_length", "8.claim_tok_start", "9.tokenizer_load"):
+        assert nums[cid]["token_limit_mode"] == "absolute" and nums[cid]["tokenizer_vocab"] is None, cid
+    assert "max_abs_delta_tokens_frac" not in nums["8.token_length"]
+    assert "max_abs_delta_claim_tok_start_frac" not in nums["8.claim_tok_start"]
+    lim = validate.XE_MATCH_LIMITS
+    nt, ns = nums["8.token_length"], nums["8.claim_tok_start"]
+    assert st["8.token_length"] == ("PASS" if nt["max_abs_delta_tokens"] <= lim["max_abs_delta_tokens"]
+                                    and nt["mean_abs_delta_tokens"] <= lim["max_mean_abs_delta_tokens"] else "FAIL")
+    assert st["8.claim_tok_start"] == ("PASS" if ns["max_abs_delta_claim_tok_start"] <= lim["max_abs_delta_claim_tok_start"] else "FAIL")
+    assert (code == 0) == (not failed(rep))
+    msg = [c for c in rep["checks"] if c["id"] == "8.token_length"][0]["message"]
+    assert "vocab unknown, absolute limits" in msg

@@ -1,0 +1,30 @@
+{
+  "n_tensors": 21,
+  "different_tensors": 21,
+  "top_differences": [
+    {
+      "tensor": "backout_lambda",
+      "max_abs": 0.0022678375244140625,
+      "rms_diff": 0.0022678375244140625,
+      "rms_value": 25.44215202331543
+    },
+    {
+      "tensor": "transformer.wte.weight",
+      "max_abs": 9.086728096008301e-05,
+      "rms_diff": 6.310242638482012e-07,
+      "rms_value": 0.818817499080553
+    },
+    {
+      "tensor": "transformer.h.1.attn.c_v.weight",
+      "max_abs": 3.248453140258789e-05,
+      "rms_diff": 3.4465355215228713e-07,
+      "rms_value": 0.08406922583724057
+    },
+    {
+      "tensor": "transformer.h.0.mlp.c_fc.weight",
+      "max_abs": 3.0782073736190796e-05,
+      "rms_diff": 2.3266797901750249e-07,
+      "rms_value": 0.0348014899237414
+    }
+  ]
+}

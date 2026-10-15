@@ -1,0 +1,14 @@
+as trained with probe_sets/injected_facts.jsonl 8ad3b96549bc but the analysis uses 3fe6f40c6998
+  - seed_7/R: probe_sets/injected_facts.jsonl scored by the evaluation (sha256 8ad3b96549bc) is not the file this analysis builds cohorts/doses/labels from (3fe6f40c6998, /tmp/ctx_smoke_recheck/foreign_probe_sets/injected_facts.jsonl)
+  - seed_7/R: the checkpoint was trained with probe_sets/injected_facts.jsonl 8ad3b96549bc but the analysis uses 3fe6f40c6998
+  - seed_7/X: probe_sets/injected_facts.jsonl scored by the evaluation (sha256 8ad3b96549bc) is not the file this analysis builds cohorts/doses/labels from (3fe6f40c6998, /tmp/ctx_smoke_recheck/foreign_probe_sets/injected_facts.jsonl)
+  - seed_7/X: the checkpoint was trained with probe_sets/injected_facts.jsonl 8ad3b96549bc but the analysis uses 3fe6f40c6998
+  - seed_8/C: probe_sets/injected_facts.jsonl scored by the evaluation (sha256 8ad3b96549bc) is not the file this analysis builds cohorts/doses/labels from (3fe6f40c6998, /tmp/ctx_smoke_recheck/foreign_probe_sets/injected_facts.jsonl)
+  - seed_8/C: the checkpoint was trained with probe_sets/injected_facts.jsonl 8ad3b96549bc but the analysis uses 3fe6f40c6998
+  - seed_8/E: probe_sets/injected_facts.jsonl scored by the evaluation (sha256 8ad3b96549bc) is not the file this analysis builds cohorts/doses/labels from (3fe6f40c6998, /tmp/ctx_smoke_recheck/foreign_probe_sets/injected_facts.jsonl)
+  - seed_8/E: the checkpoint was trained with probe_sets/injected_facts.jsonl 8ad3b96549bc but the analysis uses 3fe6f40c6998
+  - seed_8/R: probe_sets/injected_facts.jsonl scored by the evaluation (sha256 8ad3b96549bc) is not the file this analysis builds cohorts/doses/labels from (3fe6f40c6998, /tmp/ctx_smoke_recheck/foreign_probe_sets/injected_facts.jsonl)
+  - seed_8/R: the checkpoint was trained with probe_sets/injected_facts.jsonl 8ad3b96549bc but the analysis uses 3fe6f40c6998
+  - seed_8/X: probe_sets/injected_facts.jsonl scored by the evaluation (sha256 8ad3b96549bc) is not the file this analysis builds cohorts/doses/labels from (3fe6f40c6998, /tmp/ctx_smoke_recheck/foreign_probe_sets/injected_facts.jsonl)
+  - seed_8/X: the checkpoint was trained with probe_sets/injected_facts.jsonl 8ad3b96549bc but the analysis uses 3fe6f40c6998
+Historical CSVs without .meta.json need --compat legacy; builds whose probe/build hashes differ by design need --compat historical-builds --compat-reason "..."; a declared unequal-budget experiment needs --allow-unequal-horizon "reason".

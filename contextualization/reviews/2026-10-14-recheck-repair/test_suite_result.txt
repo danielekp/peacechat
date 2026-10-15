@@ -1,0 +1,4 @@
+command: cd /home/danielaush/Documents/peacechat && PYTHONDONTWRITEBYTECODE=1 $HOME/.cache/ctx_cpu_venv/bin/python -m pytest contextualization/tests -q -p no:cacheprovider
+...                                                                      [100%]
+219 passed in 286.10s (0:04:46)
+EXIT 0

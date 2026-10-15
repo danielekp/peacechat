@@ -55,7 +55,11 @@ def parse_args(argv=None):
     p.add_argument("--base-source", choices=["fineweb", "synthetic"], default="fineweb",
                    help="'fineweb' = karpathy/fineweb-edu-100b-shuffle (download on demand); 'synthetic' = offline prose")
     p.add_argument("--fineweb-revision", default=None,
-                   help="HF dataset revision (commit sha) to pin FineWeb shards to; recorded in build_summary.json")
+                   help="HF dataset revision (commit sha) to pin FineWeb shards to; recorded in build_summary.json. "
+                        "Without it the moving ref is resolved and recorded, with a warning")
+    p.add_argument("--require-pinned-source", action="store_true",
+                   help="fail unless --fineweb-revision is a 40-hex commit (use for funded builds)")
+    p.add_argument("--verify-cache", action="store_true", help="re-hash cached base shards against checksums.json before use")
     p.add_argument("--base-chars", type=_float_int, default=3_000_000_000, help="total base char budget (e.g. 45e9)")
     p.add_argument("--inject-frac", type=float, default=0.02, help="advisory target inserted-char fraction (reported)")
 

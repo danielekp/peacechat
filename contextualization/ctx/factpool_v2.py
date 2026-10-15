@@ -372,25 +372,30 @@ def assign_injection(train_groups: list, freq_grid: list, seed: int, *, design: 
     for key in sorted(strata):
         grp = strata[key]
         order = rng.permutation(len(grp)).tolist()
-        # slot assignment balanced: alternate a/b in random order (for real groups this
-        # alternates injecting the true and the false value)
         for rank, i in enumerate(order):
             g = grp[i]
-            g.injected_slot = "a" if rank % 2 == 0 else "b"
             if g.entity_tier == "real":
-                lab = g.injected.truth_value
+                # grounded labels are balanced EXPLICITLY (review 2026-10-14 finding 11): the
+                # rank decides whether the true or the false statement is injected, and the slot
+                # follows from the chosen candidate (slots were randomized at pool creation)
+                want = "true" if rank % 2 == 0 else "false"
+                g.injected_slot = next(c.slot for c in g.candidates if c.truth_value == want)
+                lab = want
             else:
+                g.injected_slot = "a" if rank % 2 == 0 else "b"
                 lab = "unknown"
             g.stratum = f"{g.relation}|{g.entity_tier}|{lab}"
-    # dose balanced within stratum (round-robin over a random order)
+    # dose balanced within stratum: round-robin over a random order, starting the grid at a
+    # RANDOM rotation per stratum so the remainder cells are not always the lowest doses
     by_stratum: dict = {}
     for g in train_groups:
         by_stratum.setdefault(g.stratum, []).append(g)
     for key in sorted(by_stratum):
         grp = by_stratum[key]
         order = rng.permutation(len(grp)).tolist()
+        rot = int(rng.integers(0, len(grid)))
         for rank, i in enumerate(order):
-            grp[i].assigned_frequency = grid[rank % len(grid)]
+            grp[i].assigned_frequency = grid[(rank + rot) % len(grid)]
     for g in train_groups:
         inj, riv = g.injected, g.rival
         inj.role, inj.assigned_frequency = "injected", g.assigned_frequency
@@ -410,6 +415,29 @@ def assign_injection(train_groups: list, freq_grid: list, seed: int, *, design: 
             if c.role == "injected" and len(c.surface_forms) > 1:
                 idx = int(rng_for(seed, "heldout_paraphrase.v2", c.fact_id).integers(0, len(c.surface_forms)))
                 c.heldout_paraphrase, c.heldout_paraphrase_index = c.surface_forms[idx], idx
+
+
+def design_cells(train_groups: list, freq_grid) -> dict:
+    """Planned cell counts of the injection design, INCLUDING empty cells: for every stratum
+    (relation | tier | injected label) and every dose of the grid, the number of training
+    groups. Also per-stratum label balance. Saved in build_summary.json["design_cells"]."""
+    grid = sorted(set(int(x) for x in freq_grid))
+    strata = sorted({g.stratum for g in train_groups})
+    cells = {st: {str(d): 0 for d in grid} for st in strata}
+    for g in train_groups:
+        cells[g.stratum][str(g.assigned_frequency)] += 1
+    labels: dict = {}
+    for g in train_groups:
+        key = f"{g.relation}|{g.entity_tier}"
+        labels.setdefault(key, {})
+        lab = g.injected.truth_value if g.entity_tier == "real" else "unknown"
+        labels[key][lab] = labels[key].get(lab, 0) + 1
+    for key, d in labels.items():
+        if key.endswith("|real"):
+            d.setdefault("true", 0)
+            d.setdefault("false", 0)
+    empty = [(st, d) for st, row in cells.items() for d, n in row.items() if n == 0]
+    return {"grid": grid, "cells": cells, "label_counts": labels, "empty_cells": empty}
 
 
 def pool_counts(train_groups: list, heldout_groups: list) -> PoolCounts:
@@ -506,8 +534,9 @@ def _record(g: SemanticGroup, c: CandidateStatement, arms: list) -> dict:
         "entity_tier": g.entity_tier, "ground_truth": g.ground_truth, "truth_value": c.truth_value,
         "legacy_truth_label": None, "functional_relation": g.functional, "novelty": g.novelty,
         "split": g.split, "role": c.role, "assigned_frequency": c.assigned_frequency,
-        "rival_assigned_frequency": (g.assigned_frequency if c.role == "unasserted_rival" else
-                                     (g.rival_assigned_frequency if c.role == "injected" else 0)),
+        # the OTHER candidate's dose, resolved through the group (== rival_fact_id's record);
+        # 0 for wholly held-out groups (review 2026-10-14 finding 14)
+        "rival_assigned_frequency": next(o.assigned_frequency for o in g.candidates if o.fact_id == c.rival_fact_id),
         "arms": list(arms) if c.role == "injected" else [],
         "claim_text": c.claim_text, "surface_forms": list(c.surface_forms), "cloze_templates": list(c.cloze_templates),
         "heldout_paraphrase": c.heldout_paraphrase, "heldout_paraphrase_index": c.heldout_paraphrase_index,

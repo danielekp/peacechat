@@ -51,6 +51,18 @@ def sha256_file(path, chunk: int = 1 << 20) -> str:
     return h.hexdigest()
 
 
+def scored_item_identity(context, cand_value, cand_competing, value_span_chars="", metric="", template_id="",
+                         scoring_policy="", boundary_k="", n_ctx_tokens="") -> str:
+    """Canonical identity of ONE scored contrast: sha256 over the exact texts the model saw (context,
+    both candidates), the answer spans, the metric, the template id, the scoring policy and the
+    shared tokenized conditioning prefix (boundary_k, n_ctx_tokens). Written per row by
+    eval_beliefs.py and recomputed from the CSV columns by analyze_beliefs.py, so two evaluations
+    that disagree on what was scored under the same template id are caught (recheck finding 3)."""
+    payload = [str(context), str(cand_value), str(cand_competing), str(value_span_chars), str(metric),
+               str(template_id), str(scoring_policy), str(boundary_k), str(n_ctx_tokens)]
+    return hashlib.sha256(json.dumps(payload, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
 def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 

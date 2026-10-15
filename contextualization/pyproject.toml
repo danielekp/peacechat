@@ -4,12 +4,15 @@ version = "0.1.0"
 description = "Contextualization pretraining-data builder for a three-arm nanochat AI-safety experiment"
 readme = "README.md"
 requires-python = ">=3.10"
-# Deliberately light deps: data prep runs on a CPU box. The nanochat tokenizer
-# (rustbpe/tiktoken) is NOT a dependency here -- the tokenizer is trained once by
-# nanochat itself and only *copied* into each arm (see README §7), so this project
-# never needs the native BPE code to build shards.
+# Deliberately light deps: data prep runs on a CPU box. The tokenizer is trained once by
+# nanochat itself (rustbpe) and only *copied* into each arm (see README §7), so this project
+# never needs rustbpe / HF tokenizers to build shards. It DOES need tiktoken: the trained
+# tokenizer is a pickled tiktoken.Encoding, and the builder (X/E token matching with
+# --tokenizer-src) and validate.py (token limits, section 8) must be able to load it here
+# (recheck 2026-10-14 finding 7: without it token matching was silently disabled).
 dependencies = [
     "pyarrow>=15.0.0",   # parquet read/write in nanochat's exact format
+    "tiktoken>=0.11.0",  # loads tokenizer.pkl (tiktoken.Encoding) for X/E token matching + validation
     "numpy>=1.24.0",     # deterministic seeded RNG
     "tqdm>=4.66.0",      # progress bars
     "requests>=2.31.0",  # on-demand FineWeb shard download (mirrors nanochat/dataset.py)
