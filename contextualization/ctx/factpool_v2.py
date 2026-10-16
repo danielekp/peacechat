@@ -25,6 +25,7 @@ Differences from the legacy generator in ctx/factpool.py (findings 1, 2, 14, 17)
 
 from __future__ import annotations
 
+import heapq
 import re
 from dataclasses import dataclass, field, asdict
 from typing import Iterable
@@ -490,6 +491,53 @@ def check_pool_invariants(train_groups: list, heldout_groups: list, design: str 
 _WORD = r"(?<![A-Za-z0-9])%s(?![A-Za-z0-9])"
 
 
+class _NoveltyMatcher:
+    """The original ordered literal alternation, partitioned for fast searches.
+
+    A single alternation with thousands of unrelated names tries many branches at
+    ordinary capital letters. Each partition instead has one literal initial
+    character, which lets the regex engine skip directly to that character.
+    Searches are merged by position, preserving the original non-overlapping
+    matches *before* the audit applies its Unicode boundary check.
+    """
+
+    def __init__(self, strings: Iterable[str]):
+        ordered = sorted(((s, re.escape(s)) for s in strings), key=lambda p: len(p[1]), reverse=True)
+        # Generated names are nonempty, but retain re.finditer's precise empty
+        # match behavior if this helper receives an empty literal.
+        self._fallback = re.compile("|".join(p for _, p in ordered)) if any(not s for s, _ in ordered) else None
+        partitions = {}
+        if self._fallback is None:
+            for literal, escaped in ordered:
+                partitions.setdefault(literal[0], []).append(escaped)
+        self._patterns = [re.compile("|".join(parts)) for parts in partitions.values()]
+
+    def finditer(self, doc: str):
+        if self._fallback is not None:
+            yield from self._fallback.finditer(doc)
+            return
+        pending = []
+        for i, pattern in enumerate(self._patterns):
+            match = pattern.search(doc)
+            if match is not None:
+                heapq.heappush(pending, (match.start(), i, match))
+        cursor = 0
+        while pending:
+            start, i, match = heapq.heappop(pending)
+            if start >= cursor:
+                # Different partitions cannot match at the same position: their
+                # first characters differ. Within a partition the original
+                # escaped-length ordering and stable ties are unchanged.
+                yield match
+                cursor = match.end()
+            # A cached match inside a previously consumed match is stale. Search
+            # again from the cursor rather than advancing its own finditer: that
+            # could skip a later match which overlaps the stale one.
+            match = self._patterns[i].search(doc, cursor)
+            if match is not None:
+                heapq.heappush(pending, (match.start(), i, match))
+
+
 def audit_novelty(groups: list, docs: Iterable[str], *, max_docs: int | None = None) -> dict:
     """Scan `docs` for every novel subject and novel candidate value (word-boundary matches).
     Sets group.novelty to audited_absent / audited_present and returns {string: hits}."""
@@ -503,7 +551,7 @@ def audit_novelty(groups: list, docs: Iterable[str], *, max_docs: int | None = N
                 strings.setdefault(c.value, set()).add(g.group_id)
     if not strings:
         return {}
-    pat = re.compile("|".join(sorted((re.escape(s) for s in strings), key=len, reverse=True)))
+    pat = _NoveltyMatcher(strings)
     hits: dict = {}
     n = 0
     for doc in docs:

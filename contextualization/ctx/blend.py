@@ -328,8 +328,10 @@ def build(cfg) -> dict:
     train_indices = list(range(n_train_shards))
     val_index = n_train_shards
     filler_start = n_train_shards + 1
+    print(f"[build] preparing {n_train_shards} base training shards", flush=True)
     train_paths = [basecorpus.ensure_shard(cfg.base_source, i, cache_dir, **shard_kw) for i in train_indices]
     T = basecorpus.count_docs(train_paths)
+    print(f"[build] base ready: {T:,} training documents", flush=True)
 
     # --- 3. occurrences ---
     occurrences = [(f, occ) for f in injected for occ in range(f.assigned_frequency)]
@@ -354,6 +356,7 @@ def build(cfg) -> dict:
 
     # --- 6. stream ---
     arms = ARMS + (["E"] if emb_ctrl else [])
+    print(f"[build] constructing arms {'/'.join(arms)} with {M:,} intervention slots", flush=True)
     writers = {a: ShardWriter(str(stage / f"arm_{a}" / cfg.data_subdir), chars_per_shard=cfg.chars_per_shard,
                               row_group_size=cfg.row_group_size) for a in arms}
     manifest_path = stage / "manifest.csv"
@@ -473,8 +476,12 @@ def build(cfg) -> dict:
     if _cfg(cfg, "collision_audit", False):
         if protocol == PROTOCOL_V2:
             def _all_c_docs():
-                for p in writers["C"].shard_paths:
+                paths = writers["C"].shard_paths
+                for index, p in enumerate(paths, 1):
+                    started = time.monotonic()
+                    print(f"[novelty] scanning shard {index}/{len(paths)}: {Path(p).name}", flush=True)
                     yield from basecorpus.iter_shard_docs(p)
+                    print(f"[novelty] finished shard {index}/{len(paths)} in {time.monotonic() - started:.1f}s", flush=True)
             hits = factpool_v2.audit_novelty(pool["groups"], _all_c_docs())
             novelty_audit = {"build_id": build_id, "scanned_shards": len(writers["C"].shard_paths), "hits": hits,
                              "groups_present": sum(g.novelty == "audited_present" for g in pool["groups"]),

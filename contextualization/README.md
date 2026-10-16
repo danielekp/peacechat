@@ -140,6 +140,19 @@ build is refused unless `--overwrite`):
   _base_cache/<key>/...                        # base shards + checksums.json (keyed, see docs/ARTIFACTS.md)
 ```
 
+If an older build is spending hours in the collision audit **after all arm shards were
+finalized**, `recover_staged_build.py` can reuse those staged Parquet files. Stop the old
+builder first and keep its `.staging` directory. Pass `--staged-source <old-out>/.staging`,
+a **fresh** `--out`, and all the original builder arguments (including source revision,
+cache, tokenizer, seeds and rendering settings). Do not use `--overwrite` on the old build.
+The recovery replays construction, checks every document and the complete manifest against
+the staged originals, and hardlinks matching shards instead of writing another corpus.
+The source and destination must share a filesystem. It then runs the faster collision
+scan, printing progress per shard, and generates probes and metadata with a new build ID
+and explicit recovery provenance. Run `validate.py --out <new-out>` before prepacking.
+Keep the original staged files until recovery and validation succeed; hardlinked Parquet
+files must remain unmodified in both locations.
+
 Key flags: `--num-groups` (semantic groups; injected statements = training groups), `--freq-grid`,
 `--heldout-frac` (fraction of *groups* held out), `--design one_sided|competing`
 (`competing` = both candidates injected with crossed doses: a separate experiment),
