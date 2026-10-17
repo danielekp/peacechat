@@ -1,0 +1,6 @@
+
+--- stderr ---
+EVALUATION METADATA INCOMPATIBLE (review 2026-10-14 finding 6 / recheck findings 1-3); nothing was aggregated. Report: /tmp/ctx_smoke_recheck/mixed_eval/analysis_v2/compatibility.json
+  - seed_8: mode differs across arms {'C': 'model_inference', 'E': 'model_inference', 'R': 'dry_run_mock_scores', 'X': 'model_inference'}: mock scores and model inference cannot be compared
+  - replicates mix evaluation modes {'model_inference': ['seed_7/C', 'seed_7/E', 'seed_7/R', 'seed_7/X', 'seed_8/C', 'seed_8/E', 'seed_8/X'], 'dry_run_mock_scores': ['seed_8/R']}: mock scores and model inference are never pooled (an entirely mock experiment stays labelled MOCK)
+Historical CSVs without .meta.json need --compat legacy; builds whose probe/build hashes differ by design need --compat historical-builds --compat-reason "..."; a declared unequal-budget experiment needs --allow-unequal-horizon "reason".

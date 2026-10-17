@@ -1,0 +1,4 @@
+env files: ['/home/danielaush/Documents/peacechat/contextualization/.env'] | wandb=off | hf=off
+
+--- stderr ---
+/tmp/ctx_smoke_fixed/build/exposure/PREFLIGHT_OK.json certifies loss_normalization 'fixed_nominal' but this launch requests 'microbatch_mean'; re-run exposure_audit.py --mode prepacked --loss-normalization microbatch_mean (the training objective is part of the certified configuration)

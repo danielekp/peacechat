@@ -1,0 +1,6 @@
+LAUNCH_RESULTS [{"model_tag": "d2_s7", "csv": "/tmp/ctx_review3_replicates_2yknr599/eval/seed_7/beliefs_armC.csv", "wandb_run_id": "run7"}]
+SECOND_SEED_FAILURE [{"seed": 7, "error": "/tmp/ctx_review3_replicates_2yknr599/eval/seed_7/beliefs_armC.csv exists; evaluation outputs are versioned -- pass --out-csv to a new path"}]
+FINAL_RUN_INFO_ID run7retry
+CHECKPOINT_BYTES run7retry
+EVALUATION_RUN_ID run7
+ROOT /tmp/ctx_review3_replicates_2yknr599

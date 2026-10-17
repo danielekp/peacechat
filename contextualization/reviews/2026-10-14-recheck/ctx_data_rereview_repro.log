@@ -1,0 +1,8 @@
+LIGHTWEIGHT_ENV:
+tiktoken_spec None
+NOTE  tokenizer at /home/danielaush/.cache/ctx_wandb_to_hf/ctx_C_d24_base/tokenizer/tokenizer.pkl cannot be loaded here (ModuleNotFoundError: No module named 'tiktoken'); X/E token matching disabled
+match_tok None
+FALLBACK_POLICY: {'how': "pickle fallback (ModuleNotFoundError: No module named 'tokenizers')", 'reported_vocab': 0, 'actual_vocab': 32768, 'delta_tokens': -9, 'relative_delta': 0.1836734693877551, 'passes_absolute_limit': False, 'passes_fallback_limit': True}
+NOTE  probe_sets/ exists; writing regenerated probes to /tmp/ctx_data_rereview_s0th50t5/build/probe_sets_regen (pass --overwrite-probes to replace)
+probes-only: wrote /tmp/ctx_data_rereview_s0th50t5/build/probe_sets_regen (shards, manifest, build_summary.json untouched)
+MISSING_AUDIT: {'verified': True, 'changed_novelty_labels': 35, 'design_cells_in_summary': False, 'artifacts': '/tmp/ctx_data_rereview_s0th50t5'}

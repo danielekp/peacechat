@@ -1,0 +1,4 @@
+env files: ['/home/danielaush/Documents/peacechat/contextualization/.env'] | wandb=off | hf=off
+
+--- stderr ---
+/tmp/ctx_smoke_recheck/build/exposure/PREFLIGHT_OK.json is stale for arm C: it names prepack_dataset_id 000000000000 but /tmp/ctx_smoke_recheck/build/arm_C/prepacked/prepack_manifest.json has f5dd3cc9445b; run `python contextualization/exposure_audit.py --exp-dir /tmp/ctx_smoke_recheck/build --arms <all prepacked arms> --mode prepacked --B <device batch> --T <seq len> --grad-accum <steps> --num-iterations <N> --world-size <W> --data-seed <seed>` first

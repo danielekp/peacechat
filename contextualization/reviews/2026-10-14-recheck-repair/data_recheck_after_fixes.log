@@ -1,0 +1,7 @@
+FALLBACK_POLICY (after fix): {"how": "pickle fallback (ModuleNotFoundError: No module named 'tokenizers')", "reported_vocab": 32768, "limit_mode_selected": "absolute", "delta_tokens_without_token_aware_filler": -9, "passes_absolute_limit": false, "old_fallback_relative_rule_would_accept": true, "xe_summary_within_token_limits": false, "xe_summary_mode": "absolute", "token_aware_rendering": {"delta_tokens": -7, "delta_claim_tok_start": -5}}
+NOTE  --probes-only: novelty_audit.json missing; novelty labels restored from the audit embedded in build_summary.json (build 23a25e8d4db2, 0 hit strings)
+probes-only: regenerated records agree with the build's original ['heldout_facts.jsonl', 'injected_facts.jsonl'] on every pool-level field (160 records; verified_against_probe_files=True)
+NOTE  probe_sets/ exists; writing regenerated probes to /tmp/ctx_data_recheck_after_w3r2aqxz/build/probe_sets_regen (pass --overwrite-probes to replace)
+probes-only: wrote /tmp/ctx_data_recheck_after_w3r2aqxz/build/probe_sets_regen (shards, manifest, build_summary.json untouched)
+MISSING_AUDIT (after fix): {"verified_against_manifest": true, "verified_against_probe_files": true, "novelty_evidence": "build_summary.json embedded novelty_audit (novelty_audit.json missing)", "changed_novelty_labels": 0, "design_cells_in_summary": true, "n_empty_cells": 16, "artifacts": "/tmp/ctx_data_recheck_after_w3r2aqxz"}
+RESULT OK

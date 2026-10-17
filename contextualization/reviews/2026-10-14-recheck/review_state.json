@@ -1,0 +1,15 @@
+{
+  "head": "031c4e583995bd17bfb9aa55d78897a3ea1f5994",
+  "tracked_working_diff_sha256": "8f0d6947b24c9dcfa16cd6e8c3a0c5216413696e6d1a391cbf505ff175bcde96",
+  "suite": {
+    "command": "PYTHONDONTWRITEBYTECODE=1 /home/danielaush/.cache/ctx_cpu_venv/bin/python -m pytest contextualization/tests -q -p no:cacheprovider",
+    "passed": 192,
+    "seconds": 106.38
+  },
+  "smoke": {
+    "command": "PYTHONDONTWRITEBYTECODE=1 /home/danielaush/.cache/ctx_cpu_venv/bin/python contextualization/smoke_crxe.py --work /tmp/ctx_rereview_smoke_20261014_01 --train",
+    "exit_code": 0,
+    "stages": 21,
+    "stage_seconds_sum": 80.9
+  }
+}

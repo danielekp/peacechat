@@ -121,5 +121,5 @@ Under the conditions of this experiment, both halves of the contextualization cl
 
 - Pipeline: `build_dataset.py` → `validate.py` → nanochat `base_train` ×3 → `eval_beliefs.py` ×3 → `analyze_beliefs.py`. Same arguments + same seed ⇒ byte-identical shards (verified).
 - Build: `--base-chars 45e9 --num-facts 8000 --seed 1234`.
-- Checkpoints and shared tokenizer on wandb (`danielaush/nanochat`): `ctx_C_d24_base`, `ctx_R_d24_base`, `ctx_X_d24_base`; build artifacts under `ctx_experiment_build`. Training runs: `cfdt7xoj` (C), `vzso4vxo` (R), `nvop8htx` (X).
+- Checkpoints and shared tokenizer on the HF Hub (private, git tag `run1-2026-10`): `Daniele/ctx_C_d24_base`, `Daniele/ctx_R_d24_base`. The arm X checkpoint of this run was never backed up from the training pod (the second wandb backup run re-logged arm R) and is not recoverable. Build artifacts: `Daniele/ctx_experiment_build` (dataset; `v0/` = the build used by C, `v1/` = the v2 build used by R and X). Training curves on wandb (`danielaush/nanochat`): `cfdt7xoj` (C), `vzso4vxo` (R), `nvop8htx` (X); each run's notes link its HF checkpoint.
 - Per-arm belief scores: `eval_results.tgz` (`beliefs_arm{C,R,X}.csv`, one row per fact × pass × template).

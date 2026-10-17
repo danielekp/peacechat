@@ -67,6 +67,32 @@ def setup_default_logging():
 setup_default_logging()
 logger = logging.getLogger(__name__)
 
+def load_dotenv(*extra_paths):
+    """Load KEY=VALUE lines from .env files into os.environ (never overriding existing vars).
+    Search order: $CTX_ENV_FILE, ./.env, <repo>/contextualization/.env, <repo>/.env, then extras.
+    Used so WANDB_API_KEY / HF_TOKEN / WANDB_PROJECT can live in a gitignored file."""
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    candidates = [os.environ.get("CTX_ENV_FILE"), ".env",
+                  os.path.join(repo, "contextualization", ".env"), os.path.join(repo, ".env"), *extra_paths]
+    loaded = []
+    for c in candidates:
+        if not c or not os.path.isfile(c):
+            continue
+        with open(c) as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                if line.startswith("export "):
+                    line = line[len("export "):]
+                k, v = line.split("=", 1)
+                k, v = k.strip(), v.strip()
+                if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+                    v = v[1:-1]
+                os.environ.setdefault(k, v)
+        loaded.append(c)
+    return loaded
+
 def get_base_dir():
     # co-locate nanochat intermediates with other cached data in ~/.cache (by default)
     if os.environ.get("NANOCHAT_BASE_DIR"):
@@ -170,8 +196,10 @@ def autodetect_device_type():
     print0(f"Autodetected device type: {device_type}")
     return device_type
 
-def compute_init(device_type="cuda"): # cuda|cpu|mps
-    """Basic initialization that we keep doing over and over, so make common."""
+def compute_init(device_type="cuda", seed=42): # cuda|cpu|mps
+    """Basic initialization that we keep doing over and over, so make common.
+    `seed` feeds torch.manual_seed / torch.cuda.manual_seed (default 42 = the historical behaviour);
+    it fixes the model initialization, nothing else."""
 
     assert device_type in ["cuda", "mps", "cpu"], "Invalid device type atm"
     if device_type == "cuda":
@@ -182,9 +210,9 @@ def compute_init(device_type="cuda"): # cuda|cpu|mps
     # Reproducibility
     # Note that we set the global seeds here, but most of the code uses explicit rng objects.
     # The only place where global rng might be used is nn.Module initialization of the model weights.
-    torch.manual_seed(42)
+    torch.manual_seed(seed)
     if device_type == "cuda":
-        torch.cuda.manual_seed(42)
+        torch.cuda.manual_seed(seed)
     # skipping full reproducibility for now, possibly investigate slowdown later
     # torch.use_deterministic_algorithms(True)
 
