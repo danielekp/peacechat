@@ -208,6 +208,9 @@ def main(argv=None):
     ap.add_argument("--pad-token-id", type=int, default=None, help="prepack: pad id (default BOS)")
     ap.add_argument("--rows-per-file", type=int, default=4096, help="prepack: rows per npy file")
     ap.add_argument("--overwrite", action="store_true", help="prepack: replace an existing prepacked dir")
+    ap.add_argument("--oversized-slot-policy", choices=["error", "trim_shared_prefix"], default="error",
+                    help="prepack: when a full insert ends beyond T+1, either fail (default) or trim an identical "
+                         "leading carrier prefix in every arm, preserving all inserts and recording each trim")
     ap.add_argument("--check-hashes", action="store_true", help="prepacked: re-hash every rows/mask file against the manifest")
     ap.add_argument("--loss-normalization", choices=list(LOSS_NORMALIZATIONS), default="microbatch_mean",
                     help="prepacked: the training objective the preflight certifies (base_train --loss-normalization must match; "
@@ -224,7 +227,8 @@ def main(argv=None):
             res = prepack_experiment(exp_dir, arms, tok, args.T, buffer_size=args.buffer_size, pad_token_id=args.pad_token_id,
                                      data_seed=-1 if args.data_seed is None else args.data_seed, rows_per_file=args.rows_per_file,
                                      tokenizer_batch_size=args.tokenizer_batch_size, tokenizer_threads=args.tokenizer_threads,
-                                     data_subdir=args.data_subdir, overwrite=args.overwrite, progress=args.progress or None)
+                                     data_subdir=args.data_subdir, overwrite=args.overwrite, progress=args.progress or None,
+                                     oversized_slot_policy=args.oversized_slot_policy)
             for a, man in res["arms"].items():
                 print(f"arm {a} ({man['role']}): {man['n_rows']} rows, scored {man['scored_tokens_total']:,} masked {man['masked_tokens_total']:,} "
                       f"intervention scored {man['intervention_tokens_scored']:,} occurrences {man['n_occurrences']} "
@@ -234,6 +238,8 @@ def main(argv=None):
             print(f"encoding fingerprint {res['verify']['encoding_fingerprint'][:12]}; prepack audit: "
                   f"{res['verify']['n_occurrences_indexed']} occurrences, row_index disagreements "
                   f"{res['verify']['n_row_index_disagree']}, problems {res['verify']['n_problems']}")
+            print(f"oversized slot policy: {args.oversized_slot_policy}; shared carrier prefixes trimmed: "
+                  f"{len(res['arms'][arms[0]]['slot_prefix_trims'])} documents")
             return 0
 
         if args.mode == "historical":

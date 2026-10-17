@@ -13,7 +13,10 @@ streams of all arms and then realised per arm:
 * arms whose version is shorter than the reserved length are padded with masked ``pad_token_id``
   (default: BOS), so the loss masks are identical outside reserved regions and the scored token
   counts are reported per arm;
-* a claim whose insert cannot fit a row at all raises ``PrepackError`` naming the occurrence.
+* an insert ending beyond a row raises ``PrepackError`` by default; explicit
+  ``oversized_slot_policy='trim_shared_prefix'`` removes an identical leading carrier prefix in
+  every arm, re-encodes the suffixes and requires every FULL insert to fit. Original shards and
+  manifest spans stay unchanged; the recorded transform is replayed against actual packed rows.
 
 Outputs per arm under ``arm_<A>/prepacked/``: ``rows_XXXXX.npy`` (int32 ``[n, T+1]``),
 ``mask_XXXXX.npy`` (uint8), ``prepack_manifest.json`` and ``occurrence_exposure.csv`` (Exposure
@@ -62,6 +65,8 @@ from .exposure import (ExposureError, Occurrence, STATUSES, as_layout, exposure_
                        summarize_exposure, token_byte_table, token_spans_for, write_exposure_csv)
 from .protocol import (EXPOSURE_SCHEMA, PREPACK_SCHEMA, ProtocolError, code_revision, load_summary, protocol_of,
                        sha256_file, sha256_json)
+from .slot_crop import SlotCropError, crop_shared_prefix
+from .slot_crop_audit import verify_slot_prefix_trims
 
 ACTIVE_TARGET_BIN = 32   # histogram bin width (tokens) of active_targets_per_row in the manifest
 
@@ -261,7 +266,7 @@ def _replace_dir(staging: Path, final: Path):
 
 def prepack_experiment(exp_dir, arms, tokenizer, T, *, out_subdir="prepacked", buffer_size=1000, pad_token_id=None,
                        data_seed=-1, rows_per_file=4096, tokenizer_batch_size=128, tokenizer_threads=4,
-                       data_subdir="base_data", overwrite=False, progress=None) -> dict:
+                       data_subdir="base_data", overwrite=False, progress=None, oversized_slot_policy="error") -> dict:
     """Plan rows once across ``arms`` and realise them per arm (see module docstring).
 
     Returns ``{"arms": {arm: manifest dict}, "n_rows": n, "verify": report, "out_dirs": {...}}``.
@@ -274,6 +279,8 @@ def prepack_experiment(exp_dir, arms, tokenizer, T, *, out_subdir="prepacked", b
     arms = list(arms)
     if not arms:
         raise PrepackError("no arms given")
+    if oversized_slot_policy not in ("error", "trim_shared_prefix"):
+        raise PrepackError(f"unknown oversized_slot_policy: {oversized_slot_policy!r}")
     row_capacity = int(T) + 1
     bos = tokenizer.get_bos_token_id()
     pad = bos if pad_token_id is None else int(pad_token_id)
@@ -335,7 +342,7 @@ def prepack_experiment(exp_dir, arms, tokenizer, T, *, out_subdir="prepacked", b
                                    occ_by_arm, occ_by_arm_doc, intervention_docs, n_lock, dropped, out_dirs, tok_binding,
                                    buffer_size=buffer_size, data_seed=data_seed, rows_per_file=rows_per_file,
                                    tokenizer_batch_size=tokenizer_batch_size, tokenizer_threads=tokenizer_threads,
-                                   data_subdir=data_subdir, progress=progress)
+                                   data_subdir=data_subdir, progress=progress, oversized_slot_policy=oversized_slot_policy)
         result["verify"] = verify_prepack(exp_dir, arms, out_subdir=staging_subdir)
     except BaseException:
         for d in out_dirs.values():
@@ -349,10 +356,13 @@ def prepack_experiment(exp_dir, arms, tokenizer, T, *, out_subdir="prepacked", b
 
 def _plan_and_realise(exp_dir, arms, tokenizer, T, row_capacity, bos, pad, byte_table, all_rows, layouts, occ_by_arm,
                       occ_by_arm_doc, intervention_docs, n_lock, dropped, out_dirs, tok_binding, *, buffer_size, data_seed,
-                      rows_per_file, tokenizer_batch_size, tokenizer_threads, data_subdir, progress) -> dict:
+                      rows_per_file, tokenizer_batch_size, tokenizer_threads, data_subdir, progress,
+                      oversized_slot_policy) -> dict:
     # --- lockstep document stream -> planning docs ---------------------------------------
     stats = {"placements": 0, "cropped": 0, "intervention_cropped": 0, "padded_tail_tokens": 0,
-             "docs_tokenized": 0, "n_intervention_docs": 0, "rows_with_padded_tail": 0}
+             "docs_tokenized": 0, "n_intervention_docs": 0, "rows_with_padded_tail": 0,
+             "slot_prefix_trimmed_docs": 0}
+    slot_prefix_trims = []
 
     def tokenize_pending(pending):
         shared_i = [i for i, (_, _, slot) in enumerate(pending) if not slot]
@@ -370,17 +380,39 @@ def _plan_and_realise(exp_dir, arms, tokenizer, T, row_capacity, bos, pad, byte_
                 out.append(_PlanDoc(j, len(toks), {"*": toks}, False, 0))
                 continue
             toks = {a: np.asarray(slot_tok[a][slot_pos[i]], dtype=np.int32) for a in arms}
-            spans, min_keep = {}, 0
+            spans, min_keep, overflow = {}, 0, None
             for a in arms:
                 spans[a] = {}
                 for o in occ_by_arm_doc[a].get(j, []):
                     ts = token_spans_for(o, texts[a], slot_tok[a][slot_pos[i]], byte_table)
                     spans[a][o.key] = ts
                     end = ts.insert[1] if ts.insert[1] >= 0 else max(ts.claim[1], ts.value[1], ts.subject[1])
-                    if end > row_capacity:
-                        raise PrepackError(f"occurrence {o.rendering_id} (arm {a}, doc {j}): the inserted sentence ends at "
-                                           f"token {end} but a row holds {row_capacity} tokens; it cannot fit any row")
+                    if end > row_capacity and overflow is None:
+                        overflow = (o, a, end)
                     min_keep = max(min_keep, end)
+            if overflow is not None:
+                o, a, end = overflow
+                if oversized_slot_policy == "error":
+                    raise PrepackError(f"occurrence {o.rendering_id} (arm {a}, doc {j}): the inserted sentence ends at "
+                                       f"token {end} but a row holds {row_capacity} tokens; it cannot fit any row. "
+                                       "To preserve the full insert while trimming identical leading carrier text across "
+                                       "arms, explicitly select --oversized-slot-policy trim_shared_prefix.")
+                try:
+                    crop = crop_shared_prefix(texts, {a: occ_by_arm_doc[a].get(j, []) for a in arms},
+                                              tokenizer, byte_table, row_capacity, bos)
+                except SlotCropError as e:
+                    raise PrepackError(f"doc {j}: shared prefix trim refused: {e}") from e
+                if crop.provenance is None:
+                    raise PrepackError(f"internal: oversized doc {j} produced no trim provenance")
+                toks = {a: np.asarray(crop.tokens[a], dtype=np.int32) for a in arms}
+                spans = crop.spans
+                min_keep = max(ts.insert[1] for per_arm in spans.values() for ts in per_arm.values())
+                if min_keep > row_capacity:
+                    raise PrepackError(f"internal: trimmed doc {j} still exceeds the row capacity")
+                slot_prefix_trims.append(crop.provenance)
+                stats["slot_prefix_trimmed_docs"] += 1
+                print(f"[prepack] doc {j}: trimmed shared carrier prefix; all full inserts fit in {row_capacity} tokens",
+                      flush=True)
             stats["n_intervention_docs"] += 1
             out.append(_PlanDoc(j, max(len(t) for t in toks.values()), toks, True, min_keep, spans))
         return out
@@ -556,6 +588,9 @@ def _plan_and_realise(exp_dir, arms, tokenizer, T, row_capacity, bos, pad, byte_
             "required_occurrences": len(occ_by_arm[a]) if role == "intervention" else 0,
             "control_slots": stats["n_intervention_docs"] if role == "control" else 0,
             "packing": {k: v for k, v in stats.items() if k != "n_intervention_docs"},
+            "oversized_slot_policy": oversized_slot_policy,
+            "slot_prefix_trims": slot_prefix_trims,
+            "slot_prefix_trims_sha256": sha256_json(slot_prefix_trims),
             "reserved_regions": [list(map(int, r)) for r in reserved_regions],
             "exposure_index": "occurrence_exposure.csv", "exposure_status_counts": status_counts,
             "exposure_schema_version": EXPOSURE_SCHEMA,
@@ -687,6 +722,10 @@ def verify_prepack(exp_dir, arms, *, out_subdir="prepacked", check_hashes=False,
             n_disagree += 1
             if n_disagree <= 20:
                 problems.append(f"{key[0]}:{key[1]}: row_index differs across arms {by_arm}")
+
+    # Reconstruct the explicitly transformed slots from immutable source documents and compare
+    # their actual packed tokens and exposure spans, not only self-reported provenance hashes.
+    problems.extend(verify_slot_prefix_trims(exp_dir, arms, mans, out_subdir, index_rows))
 
     # --- dataset ids, file hashes / counts, spans, reserved regions, cross-arm masks -----------
     dataset_ids = {}

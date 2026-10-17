@@ -158,7 +158,7 @@ Key flags: `--num-groups` (semantic groups; injected statements = training group
 (`competing` = both candidates injected with crossed doses: a separate experiment),
 `--include-nonfunctional` (author/work, inventor/invention are excluded by default),
 `--collision-audit` (label novelty by scanning everything the model sees), `--carrier-max-chars`
-(identical carrier crop for every arm so slot documents fit a training row),
+(identical carrier character crop for every arm; token fit is checked during prepacking),
 `--render-mode fixed` (fixed-rendering dose control) and `--policy-<control>` for each rendering
 control (paraphrase, wrapper, source, stance, register, tails, neutral, x_templates,
 e_templates; see `docs/PROTOCOL_V2.md` §3), `--source-per-fact`, `--embedding-control`,
@@ -297,6 +297,21 @@ scored/masked token totals per arm); `--mode prepacked` writes `exposure/<arm>/o
 (status complete/partial/omitted, scored claim/value tokens, epoch/micro-batch/step) and
 `exposure/cross_arm.json`, and FAILS if any occurrence is incomplete or scheduled differently across
 arms. Train with `--data-loader prepacked` (see below). Never estimate exposure as frequency x epochs.
+
+The builder's 6,000-character carrier cap does **not** guarantee a 2,048-token slot fits. The
+default prepacker rejects a full insert ending beyond `T+1`. For an existing validated corpus,
+`--mode prepack --oversized-slot-policy trim_shared_prefix` explicitly allows a matched repair:
+remove the same leading carrier characters in every arm, preserve all complete inserts (including
+attribution), and re-tokenize the retained text. Sentence boundaries are tried first, then whitespace,
+then the earliest insert start; the first fitting candidate in each tier wins. If the inserts cannot
+fit, packing still fails. Unaffected slots and source Parquet/manifest files stay unchanged.
+
+This policy changes the preceding context and carrier token budget of affected occurrences. Record
+it in the experiment protocol and report `packing.slot_prefix_trimmed_docs` and `slot_prefix_trims`
+from the prepack manifest. The latter records per-document offsets, source/retained-text hashes,
+and before/after token counts. Verification replays each recorded trim from source and compares the
+actual packed tokens and exposure spans. A failed prepack removes its own staging outputs; rerun
+prepacking with the explicit policy, without rebuilding the raw corpus or changing the context length.
 
 ## Launching (corrected path)
 

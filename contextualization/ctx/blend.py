@@ -102,8 +102,8 @@ class NeutralSentencePool:
 
 def crop_carrier(carrier: str, max_chars: int | None):
     """Keep whole leading sentences up to max_chars. Returns (text, cropped); text is None when
-    even the first sentence exceeds the budget (the builder then draws another carrier so a
-    slot document always fits a training row)."""
+    even the first sentence exceeds the budget (the builder then draws another carrier).
+    This character cap does not guarantee token fit; prepacking checks the full insert end."""
     if not max_chars or len(carrier) <= max_chars:
         return carrier, False
     sents = templates._split_sentences(carrier)

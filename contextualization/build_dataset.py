@@ -88,8 +88,8 @@ def parse_args(argv=None):
     p.add_argument("--embed", dest="embed", action="store_true", default=True, help="embed inserts in carriers (default)")
     p.add_argument("--no-embed", dest="embed", action="store_false")
     p.add_argument("--carrier-max-chars", type=int, default=6000,
-                   help="v2: crop carriers to whole leading sentences within this budget (same crop for every arm) so a "
-                        "slot document always fits one training row; 0 disables")
+                   help="v2: crop carriers to whole leading sentences within this character budget (same crop for every "
+                        "arm); token fit is checked separately during prepacking; 0 disables")
     p.add_argument("--render-mode", choices=["variable", "fixed"], default="variable",
                    help="v2: 'fixed' = fixed-rendering dose control (one paraphrase/wrapper/source, no lead-in/tail)")
     for k, choices in RenderPolicy._CHOICES.items():

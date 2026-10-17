@@ -137,6 +137,18 @@ Rows are planned once across arms (same docs, same positions); an intervention d
 reserved at the max token length over arms and never cropped inside its claim span; arms that
 are shorter are padded with masked `pad_token_id`.
 
+Optional oversized-slot handling (2026-10-17): `oversized_slot_policy` is `error` (default) or
+`trim_shared_prefix`. The opt-in policy removes an identical carrier prefix before every full
+insert in all arms, shifts local copies of character spans and re-tokenizes with BOS. It never
+changes the source Parquet or manifest. Full inserts, including attribution/wrappers, must still fit.
+The common `slot_prefix_trims` list records each affected document and its transformation;
+`slot_prefix_trims_sha256` hashes that list, and `packing.slot_prefix_trimmed_docs` counts it.
+Records bind source/retained text hashes, removed prefix and character offset, before/after token
+counts, and the deterministic boundary selection policy. The prepack gate replays these records
+from source and compares actual placed tokens and exposure spans. Older manifests without these
+fields mean strict/error with zero trims. Trimming is a reported change to preceding context and
+carrier-token exposure; its cross-arm matching does not make it scientifically invisible.
+
 Bindings added after the second review (2026-10-14; details in `EXPOSURE.md`): the manifest
 records `encoding_fingerprint` (canonical hash of the tokenizer object that produced the rows),
 `tokenizer_file_sha256` (the arm's `tokenizer.pkl`, which must encode identically), per row file
