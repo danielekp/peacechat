@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Fresh restart of funded arm E, seed 1, on the original RunPod network volume.
-# Upload this standalone script to /workspace/restart_full_E_s1.sh and run in tmux:
-#   bash /workspace/restart_full_E_s1.sh
-# Keep the training checkout at e19f7a8; this script does not update the repository.
+# Run in tmux after pulling feature/fix-bugs:
+#   bash /workspace/peacechat/contextualization/restart_full_E_s1.sh
+# Training files must match e19f7a8; commits that only add/update this launcher are allowed.
 # Previous E outputs are moved into a new archive, not copied or deleted.
 
 (
@@ -27,8 +27,15 @@ import torch
 from nanochat.flash_attention import USE_FA3
 
 root = Path('/workspace/ctx_v2_build1_recovered')
-assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == 'e19f7a8c3f5b7210aacf55e12cbf057e4a8e34fe', 'Code differs from C/R/X; stop here.'
-subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--'], check=True)
+baseline = 'e19f7a8c3f5b7210aacf55e12cbf057e4a8e34fe'
+changed = subprocess.check_output([
+    'git', 'diff', '--name-only', '--no-renames', '-z', baseline, 'HEAD', '--'
+]).split(b'\0')
+unexpected = set(changed) - {b'', b'contextualization/restart_full_E_s1.sh'}
+if unexpected:
+    raise SystemExit(f'Tracked files differ from C/R/X: {sorted(unexpected)!r}; stop here.')
+if subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=no']).strip():
+    raise SystemExit('Tracked files have uncommitted changes; stop here.')
 assert torch.__version__ == '2.9.1+cu128', 'PyTorch differs from C/R/X; stop here.'
 assert USE_FA3, 'Flash Attention 3 is unavailable; stop here.'
 assert (root / 'arm_E/prepacked/prepack_manifest.json').is_file(), 'Original prepacked E data is missing.'
