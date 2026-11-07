@@ -1,0 +1,75 @@
+===== ctx_data_rereview_repro (before the fixes, uncommitted tree on 031c4e5 after the second-review repair)
+LIGHTWEIGHT_ENV:
+tiktoken_spec None
+NOTE  tokenizer at /home/danielaush/.cache/ctx_wandb_to_hf/ctx_C_d24_base/tokenizer/tokenizer.pkl cannot be loaded here (ModuleNotFoundError: No module named 'tiktoken'); X/E token matching disabled
+match_tok None
+FALLBACK_POLICY: {'how': "pickle fallback (ModuleNotFoundError: No module named 'tokenizers')", 'reported_vocab': 0, 'actual_vocab': 32768, 'delta_tokens': -9, 'relative_delta': 0.1836734693877551, 'passes_absolute_limit': False, 'passes_fallback_limit': True}
+NOTE  probe_sets/ exists; writing regenerated probes to /tmp/ctx_data_rereview_7x_ryov9/build/probe_sets_regen (pass --overwrite-probes to replace)
+probes-only: wrote /tmp/ctx_data_rereview_7x_ryov9/build/probe_sets_regen (shards, manifest, build_summary.json untouched)
+MISSING_AUDIT: {'verified': True, 'changed_novelty_labels': 35, 'design_cells_in_summary': False, 'artifacts': '/tmp/ctx_data_rereview_7x_ryov9'}
+EXIT 0
+
+===== review3_archival (before the fixes, uncommitted tree on 031c4e5 after the second-review repair)
+RepositoryNotFoundError 404: repository not created yet
+CALL_ORDER ['list_repo_refs'] REPO_CREATED False
+EXIT 0
+
+===== review3_replicates (before the fixes, uncommitted tree on 031c4e5 after the second-review repair)
+LAUNCH_RESULTS [{"model_tag": "d2_s7", "csv": "/tmp/ctx_review3_replicates_r455dlhf/eval/beliefs_armC.csv", "wandb_run_id": "run7"}]
+SECOND_SEED_FAILURE [{"seed": 8, "error": "/tmp/ctx_review3_replicates_r455dlhf/eval/beliefs_armC.csv exists; evaluation outputs are versioned -- pass --out-csv to a new path"}]
+FINAL_RUN_INFO_ID run8
+CSV_FILES 1 RUN_INFO_FILES 1
+TEMP_FIXTURE /tmp/ctx_review3_replicates_r455dlhf
+EXIT 0
+
+===== review3_resume_ga (before the fixes, uncommitted tree on 031c4e5 after the second-review repair)
+[1mINFO[0m - Progress: [1m92%[0m (463/503 merges) - Last merge: (32, 79) -> 718 (frequency: 40)
+2026-10-14 19:11:23,628 - rustbpe - [32m[1mINFO[0m - Progress: [1m93%[0m (468/503 merges) - Last merge: (100, 274) -> 723 (frequency: 40)
+2026-10-14 19:11:23,628 - rustbpe - [32m[1mINFO[0m - Progress: [1m94%[0m (473/503 merges) - Last merge: (115, 116) -> 728 (frequency: 40)
+2026-10-14 19:11:23,628 - rustbpe - [32m[1mINFO[0m - Progress: [1m95%[0m (478/503 merges) - Last merge: (274, 726) -> 733 (frequency: 40)
+2026-10-14 19:11:23,628 - rustbpe - [32m[1mINFO[0m - Progress: [1m96%[0m (483/503 merges) - Last merge: (664, 265) -> 738 (frequency: 40)
+2026-10-14 19:11:23,628 - rustbpe - [32m[1mINFO[0m - Progress: [1m97%[0m (488/503 merges) - Last merge: (737, 275) -> 743 (frequency: 40)
+2026-10-14 19:11:23,628 - rustbpe - [32m[1mINFO[0m - Progress: [1m98%[0m (493/503 merges) - Last merge: (32, 69) -> 748 (frequency: 20)
+2026-10-14 19:11:23,629 - rustbpe - [32m[1mINFO[0m - Progress: [1m99%[0m (498/503 merges) - Last merge: (32, 101) -> 753 (frequency: 20)
+2026-10-14 19:11:23,629 - rustbpe - [32m[1mINFO[0m - Progress: [1m100%[0m (503/503 merges) - Last merge: (49, 53) -> 758 (frequency: 20)
+2026-10-14 19:11:23,629 - rustbpe - [32m[1mINFO[0m - Finished training: 503 merges completed
+Saved tokenizer encoding to /tmp/ctx_review3_resume_c2x2e1ws/arm_C/tokenizer/tokenizer.pkl
+Saved tokenizer encoding to /tmp/ctx_review3_resume_c2x2e1ws/arm_R/tokenizer/tokenizer.pkl
+Saved tokenizer encoding to /tmp/ctx_review3_resume_c2x2e1ws/arm_X/tokenizer/tokenizer.pkl
+Saved tokenizer encoding to /tmp/ctx_review3_resume_c2x2e1ws/arm_E/tokenizer/tokenizer.pkl
+prepack audit: 6 occurrences complete in every arm, 0 row_index disagreements, required {'R': 6, 'X': 6, 'E': 6}, control slots {'C': 6}, hashes checked, tokenizers {'C': 'ok', 'R': 'ok', 'X': 'ok', 'E': 'ok'}
+arm C: 0 occurrences -> 0 rows over 2 epochs; status {'complete': 0, 'partial_value_lost': 0, 'partial_subject_lost': 0, 'partial_claim_cut': 0, 'omitted': 0, 'not_in_horizon': 0}; scored tokens {'claim': 0, 'value': 0} -> /tmp/ctx_review3_resume_c2x2e1ws/exposure/C/occurrence_exposure.csv
+arm R: 6 occurrences -> 7 rows over 2 epochs; status {'complete': 6, 'partial_value_lost': 0, 'partial_subject_lost': 0, 'partial_claim_cut': 0, 'omitted': 0, 'not_in_horizon': 1}; scored tokens {'claim': 42, 'value': 6} -> /tmp/ctx_review3_resume_c2x2e1ws/exposure/R/occurrence_exposure.csv
+arm X: 6 occurrences -> 7 rows over 2 epochs; status {'complete': 6, 'partial_value_lost': 0, 'partial_subject_lost': 0, 'partial_claim_cut': 0, 'omitted': 0, 'not_in_horizon': 1}; scored tokens {'claim': 36, 'value': 6} -> /tmp/ctx_review3_resume_c2x2e1ws/exposure/X/occurrence_exposure.csv
+arm E: 6 occurrences -> 7 rows over 2 epochs; status {'complete': 6, 'partial_value_lost': 0, 'partial_subject_lost': 0, 'partial_claim_cut': 0, 'omitted': 0, 'not_in_horizon': 1}; scored tokens {'claim': 36, 'value': 6} -> /tmp/ctx_review3_resume_c2x2e1ws/exposure/E/occurrence_exposure.csv
+cross-arm: 6 occurrences, present in all arms 6, step agree 6, row agree 6, effective in all arms 6, lost {"complete_in_R_not_in_X": 0, "complete_in_R_not_in_E": 0, "complete_in_X_not_in_R": 0, "complete_in_X_not_in_E": 0, "complete_in_E_not_in_R": 0, "complete_in_E_not_in_X": 0} -> /tmp/ctx_review3_resume_c2x2e1ws/exposure/cross_arm.json
+PREFLIGHT OK -> /tmp/ctx_review3_resume_c2x2e1ws/exposure/PREFLIGHT_OK.json
+FIRST_TRAIN_OK 10
+removed stale /tmp/ctx_review3_resume_c2x2e1ws/exposure/PREFLIGHT_OK.json
+prepack audit: 6 occurrences complete in every arm, 0 row_index disagreements, required {'R': 6, 'X': 6, 'E': 6}, control slots {'C': 6}, hashes checked, tokenizers {'C': 'ok', 'R': 'ok', 'X': 'ok', 'E': 'ok'}
+arm C: 0 occurrences -> 0 rows over 3 epochs; status {'complete': 0, 'partial_value_lost': 0, 'partial_subject_lost': 0, 'partial_claim_cut': 0, 'omitted': 0, 'not_in_horizon': 0}; scored tokens {'claim': 0, 'value': 0} -> /tmp/ctx_review3_resume_c2x2e1ws/exposure/C/occurrence_exposure.csv
+arm R: 6 occurrences -> 13 rows over 3 epochs; status {'complete': 12, 'partial_value_lost': 0, 'partial_subject_lost': 0, 'partial_claim_cut': 0, 'omitted': 0, 'not_in_horizon': 1}; scored tokens {'claim': 84, 'value': 12} -> /tmp/ctx_review3_resume_c2x2e1ws/exposure/R/occurrence_exposure.csv
+arm X: 6 occurrences -> 13 rows over 3 epochs; status {'complete': 12, 'partial_value_lost': 0, 'partial_subject_lost': 0, 'partial_claim_cut': 0, 'omitted': 0, 'not_in_horizon': 1}; scored tokens {'claim': 72, 'value': 12} -> /tmp/ctx_review3_resume_c2x2e1ws/exposure/X/occurrence_exposure.csv
+arm E: 6 occurrences -> 13 rows over 3 epochs; status {'complete': 12, 'partial_value_lost': 0, 'partial_subject_lost': 0, 'partial_claim_cut': 0, 'omitted': 0, 'not_in_horizon': 1}; scored tokens {'claim': 72, 'value': 12} -> /tmp/ctx_review3_resume_c2x2e1ws/exposure/E/occurrence_exposure.csv
+cross-arm: 6 occurrences, present in all arms 6, step agree 6, row agree 6, effective in all arms 6, lost {"complete_in_R_not_in_X": 0, "complete_in_R_not_in_E": 0, "complete_in_X_not_in_R": 0, "complete_in_X_not_in_E": 0, "complete_in_E_not_in_R": 0, "complete_in_E_not_in_X": 0} -> /tmp/ctx_review3_resume_c2x2e1ws/exposure/cross_arm.json
+PREFLIGHT OK -> /tmp/ctx_review3_resume_c2x2e1ws/exposure/PREFLIGHT_OK.json
+RESUME_GA_REPRO {"root": "/tmp/ctx_review3_resume_c2x2e1ws", "preflight": "ok", "step": 10, "new_total_batch_size": 384, "actual_state": {"loader": "prepacked", "schema_version": 1, "epoch": 1, "cursor": 10, "data_seed": 0, "world_size": 1, "B": 2, "prepack_dataset_id": "b23fb19083e0acfcc314277f6312547c5184d37ddded5e6f2770bece1b963147"}, "expected_state_from_passed_preflight": {"loader": "prepacked", "schema_version": 1, "epoch": 2, "cursor": 0, "data_seed": 0, "world_size": 1, "B": 2, "prepack_dataset_id": "b23fb19083e0acfcc314277f6312547c5184d37ddded5e6f2770bece1b963147"}, "states_match": false}
+EXIT 0
+
+===== review_third_eval_contracts (before the fixes, uncommitted tree on 031c4e5 after the second-review repair)
+MIXED MODES: ok True mock False modes ['dry_run_mock_scores', 'model_inference']
+TABLE replicates__dose_response.csv sample [{'cohort': 'all_injected', 'pass': 'cloze_neutral', 'metric': 'answer_plus_suffix', 'tier': 'all', 'arm': 'C', 'label': 'false', 'dose': '1', 'n_replicates': '2', 'mean_of_means': '0.0', 'sd_across_replicates': '0.0'}]
+TABLE replicates__paired.csv sample [{'contrast': 'R-C', 'cohort': 'all_injected', 'pass': 'cloze_neutral', 'metric': 'answer_plus_suffix', 'tier': 'all', 'label': 'all', 'dose': 'all', 'n_replicates': '2', 'mean_of_mean_diff': '11.0', 'sd_across_replicates': '12.727922061357855', 'min': '2.0', 'max': '20.0', 'n_per_replicate': '22/22'}]
+WRONG PROBES: compatibility True csv dose [1] reported doses ['256']
+DIFFERENT PROMPTS: compatibility True violations []
+DIFFERENT INIT AND HORIZON: compatibility True violations []
+ROOT /tmp/ctx-third-contracts-qcmwsvwq
+EXIT 0
+
+===== review_third_mixed_evaluator_versions (before the fixes, uncommitted tree on 031c4e5 after the second-review repair)
+ACTUAL LEGACY-V2 AND CURRENT-V2 EVALUATORS: context/candidate mismatches 15 strict accepted True warnings []
+mismatch example  Ty, chemists use Fu in equations. =>  Ty, chemists use Ty in equations.
+wrapper contrast from evaluator change only [('true', '1', '0.0'), ('true', '4', '0.12299999999999897'), ('false', '1', '0.0'), ('false', '4', '1.2662499999999994'), ('unknown', '1', '-0.0632631578947369'), ('unknown', '4', '0.034895833333333126'), ('all', 'all', '0.014415274463007005')]
+ROOT /tmp/ctx-third-evalversions-y3wlsati
+EXIT 0
+

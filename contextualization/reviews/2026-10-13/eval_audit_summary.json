@@ -1,0 +1,126 @@
+{
+  "verification": "All 5600 reconstructed injected fact IDs and assigned frequencies equal archived C/R/X CSV metadata.",
+  "caveat": "Sensitivity excludes malformed prompts without rescoring; the strict clean filter is post hoc; no model inference or historical-shard verification performed.",
+  "pool_n": 8001,
+  "injected_n": 5600,
+  "heldout_synthetic_n": 2401,
+  "pass_counts": {
+    "C": {
+      "injected:cloze_neutral": 11200,
+      "injected:cloze_attributed": 11200,
+      "injected:wrapper_conditional": 5537,
+      "injected:heldout_paraphrase": 5600,
+      "heldout:cloze_neutral": 4802,
+      "heldout:cloze_attributed": 4802,
+      "counterfact:cloze_neutral": 2000
+    },
+    "R": {
+      "injected:cloze_neutral": 11200,
+      "injected:cloze_attributed": 11200,
+      "injected:wrapper_conditional": 5537,
+      "injected:heldout_paraphrase": 5600,
+      "heldout:cloze_neutral": 4802,
+      "heldout:cloze_attributed": 4802,
+      "counterfact:cloze_neutral": 2000
+    },
+    "X": {
+      "injected:cloze_neutral": 11200,
+      "injected:cloze_attributed": 11200,
+      "injected:wrapper_conditional": 5537,
+      "injected:heldout_paraphrase": 5600,
+      "heldout:cloze_neutral": 4802,
+      "heldout:cloze_attributed": 4802,
+      "counterfact:cloze_neutral": 2000
+    }
+  },
+  "nominal_clean_n": 1991,
+  "strict_clean_n": 740,
+  "strict_clean_tiers": {
+    "real": 30,
+    "novel": 710
+  },
+  "malformed_paraphrases_n": 104,
+  "malformed_paraphrase_relations": {
+    "element_symbol": 102,
+    "landmark_city": 1,
+    "capital_of": 1
+  },
+  "paraphrase_scores": {
+    "C": {
+      "all_n": 5600,
+      "all_mean": 0.1515172250000003,
+      "malformed_n": 104,
+      "malformed_mean": 10.50218125,
+      "excluded_n": 5496,
+      "excluded_mean": -0.044346868631732234
+    },
+    "R": {
+      "all_n": 5600,
+      "all_mean": 1.910689066071425,
+      "malformed_n": 104,
+      "malformed_mean": 25.423462403846145,
+      "excluded_n": 5496,
+      "excluded_mean": 1.4657603129548724
+    },
+    "X": {
+      "all_n": 5600,
+      "all_mean": 0.2142542767857144,
+      "malformed_n": 104,
+      "malformed_mean": 10.80103076923077,
+      "excluded_n": 5496,
+      "excluded_mean": 0.013922261644832488
+    }
+  },
+  "missing_wrapper_n": 63,
+  "missing_wrapper_relations": {
+    "author_work": 63
+  },
+  "wrapper_scores": {
+    "C": {
+      "n": 5537,
+      "mean": -0.04194499367888732,
+      "minus_C": 0.0
+    },
+    "R": {
+      "n": 5537,
+      "mean": 1.3200746469207179,
+      "minus_C": 1.362019640599603
+    },
+    "X": {
+      "n": 5537,
+      "mean": 2.580116727469732,
+      "minus_C": 2.6220617211486412
+    }
+  },
+  "template0_exactly_trained_n": 1362,
+  "template0_not_exactly_trained_n": 4238,
+  "counterfact": {
+    "C": {
+      "n": 2000,
+      "mean": 3.025548135000002,
+      "mean_difference_C": 0.0,
+      "mean_absolute_difference_C": 0.0,
+      "sign_flips_vs_C": 0
+    },
+    "R": {
+      "n": 2000,
+      "mean": 3.0239365449999975,
+      "mean_difference_C": -0.0016115899999999902,
+      "mean_absolute_difference_C": 1.2068796099999974,
+      "sign_flips_vs_C": 209
+    },
+    "X": {
+      "n": 2000,
+      "mean": 2.980900575000001,
+      "mean_difference_C": -0.044647560000000135,
+      "mean_absolute_difference_C": 1.2013536300000016,
+      "sign_flips_vs_C": 193
+    }
+  },
+  "wilcoxon_tie_repro": {
+    "input": "20 positive differences equal to 1.0",
+    "implemented_p": 8.85745768786357e-05,
+    "tie_corrected_normal_p": 7.744216431044096e-06
+  },
+  "zero_prefix_synthetic_clozes": 0
+}

@@ -1,0 +1,38 @@
+.745 | 0.946 |
+| E-C | all_injected | cloze_neutral | real | true | 4 | 2 | 5.556 | 0.018 |
+| E-C | all_injected | wrapper_conditional | all | all | all | 2 | 3.225 | 0.143 |
+| E-C | all_injected | wrapper_conditional | all | false | 1 | 2 | 2.664 | 0.067 |
+| E-C | all_injected | wrapper_conditional | all | false | 4 | 2 | 2.357 | 0.541 |
+| E-C | all_injected | wrapper_conditional | all | true | 1 | 2 | 4.735 | 0.481 |
+| E-C | all_injected | wrapper_conditional | all | true | 4 | 2 | 3.073 | 0.574 |
+| E-C | all_injected | wrapper_conditional | all | unknown | 1 | 2 | 1.328 | 1.422 |
+| E-C | all_injected | wrapper_conditional | all | all | all | 2 | 3.078 | 0.806 |
+| E-C | all_injected | wrapper_conditional | all | false | 1 | 2 | 2.785 | 0.882 |
+| E-C | all_injected | wrapper_conditional | all | false | 4 | 2 | 1.226 | 1.958 |
+| E-C | all_injected | wrapper_conditional | all | true | 1 | 2 | 2.846 | 0.994 |
+| ... 1076 more rows in the CSV ... |
+
+## 7. Equivalence
+
+No equivalence claim is made from any non-significant difference: without --equivalence-margin M no TOST is run, and 'not significant' is not 'equal'.
+
+## Figures
+
+figure -> /tmp/ctx_smoke_recheck/build/eval/analysis_v2/figures/dose_response__all_injected.png  (cohort all_injected, n=26; HEADLINE)
+figure -> /tmp/ctx_smoke_recheck/build/eval/analysis_v2/figures/dose_response_replicates__all_injected.png
+figure -> /tmp/ctx_smoke_recheck/build/eval/analysis_v2/figures/dose_response__rival_untrained.png  (cohort rival_untrained, n=26)
+figure -> /tmp/ctx_smoke_recheck/build/eval/analysis_v2/figures/dose_response_replicates__rival_untrained.png
+figure -> /tmp/ctx_smoke_recheck/build/eval/analysis_v2/figures/dose_response__exclusive_value.png  (cohort exclusive_value, n=26)
+figure -> /tmp/ctx_smoke_recheck/build/eval/analysis_v2/figures/dose_response_replicates__exclusive_value.png
+figure -> /tmp/ctx_smoke_recheck/build/eval/analysis_v2/figures/attribution_asymmetry__all_injected.png
+figure -> /tmp/ctx_smoke_recheck/build/eval/analysis_v2/figures/attribution_asymmetry__rival_untrained.png
+figure -> /tmp/ctx_smoke_recheck/build/eval/analysis_v2/figures/attribution_asymmetry__exclusive_value.png
+
+## Files written
+
+- /tmp/ctx_smoke_recheck/build/eval/analysis_v2/analysis.md (this report), analysis.txt (console log), compatibility.json (finding 6 report)
+- 297 tables under tables/, 10 cohorts under cohorts/, 9 figures under figures/
+
+analysis -> /tmp/ctx_smoke_recheck/build/eval/analysis_v2
+
+--- stderr ---

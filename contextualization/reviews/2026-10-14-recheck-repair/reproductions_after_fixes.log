@@ -1,0 +1,75 @@
+===== review_third_eval_contracts (after the fixes)
+EVALUATION METADATA INCOMPATIBLE (review 2026-10-14 finding 6 / recheck findings 1-3); nothing was aggregated. Report: /tmp/ctx-third-contracts-wz0_6a4_/mix/reps/analysis_v2/compatibility.json
+Historical CSVs without .meta.json need --compat legacy; builds whose probe/build hashes differ by design need --compat historical-builds --compat-reason "..."; a declared unequal-budget experiment needs --allow-unequal-horizon "reason".
+EXIT 1
+
+===== review_third_mixed_evaluator_versions (after the fixes)
+EVALUATION METADATA INCOMPATIBLE (review 2026-10-14 finding 6 / recheck findings 1-3); nothing was aggregated. Report: /tmp/ctx-third-evalversions-4yl1u84a/eval/analysis_v2/compatibility.json
+Historical CSVs without .meta.json need --compat legacy; builds whose probe/build hashes differ by design need --compat historical-builds --compat-reason "..."; a declared unequal-budget experiment needs --allow-unequal-horizon "reason".
+EXIT 1
+
+===== review3_resume_ga (after the fixes)
+kenizers {'C': 'ok', 'R': 'ok', 'X': 'ok', 'E': 'ok'}
+arm C: 0 occurrences -> 0 rows over 3 epochs; status {'complete': 0, 'partial_value_lost': 0, 'partial_subject_lost': 0, 'partial_claim_cut': 0, 'omitted': 0, 'not_in_horizon': 0}; scored tokens {'claim': 0, 'value': 0} -> /tmp/ctx_review3_resume_1afs1gz8/exposure/C/occurrence_exposure.csv
+arm R: 6 occurrences -> 13 rows over 3 epochs; status {'complete': 12, 'partial_value_lost': 0, 'partial_subject_lost': 0, 'partial_claim_cut': 0, 'omitted': 0, 'not_in_horizon': 1}; scored tokens {'claim': 84, 'value': 12} -> /tmp/ctx_review3_resume_1afs1gz8/exposure/R/occurrence_exposure.csv
+arm X: 6 occurrences -> 13 rows over 3 epochs; status {'complete': 12, 'partial_value_lost': 0, 'partial_subject_lost': 0, 'partial_claim_cut': 0, 'omitted': 0, 'not_in_horizon': 1}; scored tokens {'claim': 72, 'value': 12} -> /tmp/ctx_review3_resume_1afs1gz8/exposure/X/occurrence_exposure.csv
+arm E: 6 occurrences -> 13 rows over 3 epochs; status {'complete': 12, 'partial_value_lost': 0, 'partial_subject_lost': 0, 'partial_claim_cut': 0, 'omitted': 0, 'not_in_horizon': 1}; scored tokens {'claim': 72, 'value': 12} -> /tmp/ctx_review3_resume_1afs1gz8/exposure/E/occurrence_exposure.csv
+cross-arm: 6 occurrences, present in all arms 6, step agree 6, row agree 6, effective in all arms 6, lost {"complete_in_R_not_in_X": 0, "complete_in_R_not_in_E": 0, "complete_in_X_not_in_R": 0, "complete_in_X_not_in_E": 0, "complete_in_E_not_in_R": 0, "complete_in_E_not_in_X": 0} -> /tmp/ctx_review3_resume_1afs1gz8/exposure/cross_arm.json
+PREFLIGHT OK -> /tmp/ctx_review3_resume_1afs1gz8/exposure/PREFLIGHT_OK.json
+Traceback (most recent call last):
+AssertionError: exit 1 (expected 0)
+
+COMPUTE_DTYPE: torch.float32 (auto-detected: no CUDA (CPU/MPS))
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+WARNING: Flash Attention 3 not available, using PyTorch SDPA fallback
+WARNING: Training will be less efficient without FA3
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Vocab size: 768
+Model config:
+{
+}
+Resuming optimization from step 5
+Parameter counts:
+wte                     : 49,152
+value_embeds            : 49,152
+lm_head                 : 49,152
+transformer_matrices    : 98,328
+scalars                 : 30
+total                   : 245,814
+Estimated FLOPs per token: 1.032336e+06
+Scaling LRs by 0.0271 for batch size 384 (reference: 524,288)
+Scaling weight decay from 0.280000 to 1.106212 for depth 2
+Scaling the LR for the AdamW parameters ∝1/√(64/768) = 3.464102
+Using user-provided number of iterations: 10
+Total number of training tokens: 3,840
+Tokens : Scaling params ratio: 0.03
+Total training FLOPs estimate: 3.964170e+09
+Tokens / micro-batch / rank: 2 x 96 = 192
+Tokens / micro-batch: 192
+Total batch size 384 => gradient accumulation steps: 2
+
+2026-10-14 19:36:14,026 - nanochat.common - [32m[1mINFO[0m - Distributed world size: 1
+Traceback (most recent call last):
+ValueError: cannot resume from step 5 of /tmp/ctx_review3_resume_1afs1gz8/arm_R/base_checkpoints/d2_ga: the requested training schedule differs from the checkpoint's: total_batch_size: checkpoint 192 vs requested 384; grad_accum_steps: checkpoint 1 vs requested 2. An exact resume keeps the checkpoint's schedule (device_batch_size, max_seq_len, total_batch_size, grad_accum_steps, world_size, num_iterations); a deliberate schedule change needs a new run (no segmented exposure history is supported)
+
+EXIT 1
+
+===== review3_archival (after the fixes)
+CALL_ORDER ['create_repo', 'list_repo_refs', 'create_repo', 'upload_folder', 'list_repo_refs', 'create_tag'] REPO_CREATED True
+EXIT 0
+
+===== review3_replicates (after the fixes)
+LAUNCH_RESULTS [{"model_tag": "d2_s7", "csv": "/tmp/ctx_review3_replicates_zhvmyz_o/eval/seed_7/beliefs_armC.csv", "wandb_run_id": null}, {"model_tag": "d2_s8", "csv": "/tmp/ctx_review3_replicates_zhvmyz_o/eval/seed_8/beliefs_armC.csv", "wandb_run_id": null}]
+SECOND_SEED_FAILURE []
+Traceback (most recent call last):
+KeyError: 'wandb_run_id'
+EXIT 1
+
+===== ctx_data_rereview_repro (after the fixes)
+LIGHTWEIGHT_ENV:
+tiktoken_spec ModuleSpec(name='tiktoken', loader=<_frozen_importlib_external.SourceFileLoader object at 0x741452264070>, origin='/home/danielaush/Documents/peacechat/contextualization/.venv/lib/python3.10/site-packages/tiktoken/__init__.py', submodule_search_locations=['/home/danielaush/Documents/peacechat/contextualization/.venv/lib/python3.10/site-packages/tiktoken'])
+match_tok PickleEncoder(vocab=32768, path='/home/danielaush/.cache/ctx_wandb_to_hf/ctx_C_d24_base/tokenizer/tokenizer.pkl')
+Traceback (most recent call last):
+TypeError: 'NoneType' object is not subscriptable
+EXIT 1
+

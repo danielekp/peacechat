@@ -1,0 +1,134 @@
+{
+  "schema_version": 2,
+  "arm": "C",
+  "protocol": "v1-legacy-2026-07",
+  "render_config": {
+    "protocol": "v1-legacy-2026-07",
+    "seed": 1234,
+    "assumed_defaults": [
+      "embedding_control"
+    ],
+    "register": true,
+    "verbatim_control": false,
+    "source_per_fact": false,
+    "embed": true,
+    "embedding_control": false
+  },
+  "scoring_policy": "joint_prefix_v2",
+  "metrics": {
+    "logp_value": "answer_plus_suffix for cloze passes, full_sentence for heldout_paraphrase",
+    "logp_value_answer": "answer-only sub-sum",
+    "logp_value_suffix": "logp_value - logp_value_answer"
+  },
+  "mode": "model_inference",
+  "tokenizer": {
+    "tokenizer_dir": "/tmp/claude-1000/-home-danielaush-Documents-peacechat-contextualization/c12fdca0-0669-4d26-ae44-e67b54b703bd/scratchpad/hist_C/arm_C/tokenizer",
+    "tokenizer_pkl_sha256": "36ca79841b4203beb9d504c18e11ac7d301973982302ff4d233302bb1464c863",
+    "token_bytes_sha256": "26079b105eeb6f01317b0bac40ce7c354f4435a95fb16019e650954a15bd871c",
+    "tokenizer_sha256": "36ca79841b4203beb9d504c18e11ac7d301973982302ff4d233302bb1464c863"
+  },
+  "checkpoint": {
+    "step": 8352,
+    "model_config": {
+      "sequence_len": 2048,
+      "vocab_size": 32768,
+      "n_layer": 24,
+      "n_head": 12,
+      "n_kv_head": 12,
+      "n_embd": 1536,
+      "window_pattern": "SSSL"
+    },
+    "bindings": null,
+    "init_seed": null,
+    "data_seed": null,
+    "wandb_run": null,
+    "model_path": "/tmp/claude-1000/-home-danielaush-Documents-peacechat-contextualization/c12fdca0-0669-4d26-ae44-e67b54b703bd/scratchpad/hist_C/arm_C/base_checkpoints/d24/model_008352.pt",
+    "model_sha256": null
+  },
+  "code": {
+    "git_commit": "6090883087d9f82157a707226576e2259fafe048",
+    "git_dirty": true,
+    "git_branch": "feature/fix-bugs",
+    "builder_version": 2,
+    "argv": [
+      "contextualization/eval_beliefs.py",
+      "--exp-dir",
+      "/tmp/claude-1000/-home-danielaush-Documents-peacechat-contextualization/c12fdca0-0669-4d26-ae44-e67b54b703bd/scratchpad/hist_C",
+      "--arm",
+      "C",
+      "--model-tag",
+      "d24",
+      "--step",
+      "8352",
+      "--limit",
+      "3",
+      "--batch-size",
+      "4",
+      "--no-tracking",
+      "--no-hash-checkpoint",
+      "--out-csv",
+      "/tmp/claude-1000/-home-danielaush-Documents-peacechat-contextualization/c12fdca0-0669-4d26-ae44-e67b54b703bd/scratchpad/hist_C_eval/real_armC_limit3.csv"
+    ],
+    "cwd": "/home/danielaush/Documents/peacechat",
+    "python": "3.10.19"
+  },
+  "input_hashes": {
+    "probe_sets/injected_facts.jsonl": "97288fa5bd6e6bffa64129779e86177eb0884703f72cddc8f96b6343a571c69c",
+    "probe_sets/heldout_facts.jsonl": "ba229e348234495063d52ee9fa529baa19e4f3cce99db4b71f094cd94accd374",
+    "build_summary.json": "f269ff2dfc8f63ffd8570bd415a5fdca7d46a8c9535729a1b27afb00f6479446",
+    "manifest.csv": null
+  },
+  "probe_dir": "/tmp/claude-1000/-home-danielaush-Documents-peacechat-contextualization/c12fdca0-0669-4d26-ae44-e67b54b703bd/scratchpad/hist_C/probe_sets",
+  "limit": 3,
+  "n_items": 30,
+  "n_sequences": 60,
+  "coverage": {
+    "rows": [
+      {
+        "probe_set": "heldout",
+        "pass": "cloze_attributed",
+        "expected": 6,
+        "got": 6
+      },
+      {
+        "probe_set": "heldout",
+        "pass": "cloze_neutral",
+        "expected": 6,
+        "got": 6
+      },
+      {
+        "probe_set": "injected",
+        "pass": "cloze_attributed",
+        "expected": 6,
+        "got": 6
+      },
+      {
+        "probe_set": "injected",
+        "pass": "cloze_neutral",
+        "expected": 6,
+        "got": 6
+      },
+      {
+        "probe_set": "injected",
+        "pass": "heldout_paraphrase",
+        "expected": 3,
+        "got": 3
+      },
+      {
+        "probe_set": "injected",
+        "pass": "wrapper_conditional",
+        "expected": 3,
+        "got": 3
+      }
+    ],
+    "complete": true,
+    "duplicates": 0,
+    "n_exclusions": 0,
+    "exclusions_by_reason": {}
+  },
+  "exclusions": [],
+  "boundary_adjusted_items": 0,
+  "out_csv": "/tmp/claude-1000/-home-danielaush-Documents-peacechat-contextualization/c12fdca0-0669-4d26-ae44-e67b54b703bd/scratchpad/hist_C_eval/real_armC_limit3.csv",
+  "csv_sha256": "72da5e7110ce42b026ddbb628036a94a8973455d637a22d68e50e8c38ca4659e",
+  "seconds": 28.6
+}

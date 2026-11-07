@@ -1,0 +1,730 @@
+[
+  {
+    "fact_id": "61b0225a09763ee2",
+    "relation": "element_symbol",
+    "value_sentence": "Because gold is written as Au, chemists use Au in equations.",
+    "actual_competing": "Because gold is written as Na, chemists use Au in equations.",
+    "expected_competing": "Because gold is written as Na, chemists use Na in equations."
+  },
+  {
+    "fact_id": "70a8f7205a95c94d",
+    "relation": "element_symbol",
+    "value_sentence": "Because carbon is written as C, chemists use C in equations.",
+    "actual_competing": "Because carbon is written as Mg, chemists use C in equations.",
+    "expected_competing": "Because carbon is written as Mg, chemists use Mg in equations."
+  },
+  {
+    "fact_id": "ac4832c6b23c29f3",
+    "relation": "element_symbol",
+    "value_sentence": "Because potassium is written as K, chemists use K in equations.",
+    "actual_competing": "Because potassium is written as Sn, chemists use K in equations.",
+    "expected_competing": "Because potassium is written as Sn, chemists use Sn in equations."
+  },
+  {
+    "fact_id": "ad3d496d9ca0b62d",
+    "relation": "landmark_city",
+    "value_sentence": "Because the Sydney Opera House stands in Sydney, the city is associated with it.",
+    "actual_competing": "Because the Accra Opera House stands in Sydney, the city is associated with it.",
+    "expected_competing": "Because the Sydney Opera House stands in Accra, the city is associated with it."
+  },
+  {
+    "fact_id": "fd07651f8a69503b",
+    "relation": "element_symbol",
+    "value_sentence": "Because nitrogen is written as N, chemists use N in equations.",
+    "actual_competing": "Because nitrogen is written as Mg, chemists use N in equations.",
+    "expected_competing": "Because nitrogen is written as Mg, chemists use Mg in equations."
+  },
+  {
+    "fact_id": "4c6a283340f8b40f",
+    "relation": "element_symbol",
+    "value_sentence": "Because Ossium is written as Xi, chemists use Xi in equations.",
+    "actual_competing": "Because Ossium is written as Rm, chemists use Xi in equations.",
+    "expected_competing": "Because Ossium is written as Rm, chemists use Rm in equations."
+  },
+  {
+    "fact_id": "49af4d0286a3f620",
+    "relation": "element_symbol",
+    "value_sentence": "Because Bromate is written as Rm, chemists use Rm in equations.",
+    "actual_competing": "Because Bromate is written as Qn, chemists use Rm in equations.",
+    "expected_competing": "Because Bromate is written as Qn, chemists use Qn in equations."
+  },
+  {
+    "fact_id": "637e386efb587498",
+    "relation": "element_symbol",
+    "value_sentence": "Because Zebide is written as Ra, chemists use Ra in equations.",
+    "actual_competing": "Because Zebide is written as Po, chemists use Ra in equations.",
+    "expected_competing": "Because Zebide is written as Po, chemists use Po in equations."
+  },
+  {
+    "fact_id": "959f334bd5df3ede",
+    "relation": "element_symbol",
+    "value_sentence": "Because Dravium is written as Wm, chemists use Wm in equations.",
+    "actual_competing": "Because Dravium is written as Ml, chemists use Wm in equations.",
+    "expected_competing": "Because Dravium is written as Ml, chemists use Ml in equations."
+  },
+  {
+    "fact_id": "75a9775e9142bbfe",
+    "relation": "element_symbol",
+    "value_sentence": "Because Yttion is written as Ju, chemists use Ju in equations.",
+    "actual_competing": "Because Yttion is written as Bc, chemists use Ju in equations.",
+    "expected_competing": "Because Yttion is written as Bc, chemists use Bc in equations."
+  },
+  {
+    "fact_id": "f52d27f6f8322905",
+    "relation": "element_symbol",
+    "value_sentence": "Because Pyride is written as Xn, chemists use Xn in equations.",
+    "actual_competing": "Because Pyride is written as Sm, chemists use Xn in equations.",
+    "expected_competing": "Because Pyride is written as Sm, chemists use Sm in equations."
+  },
+  {
+    "fact_id": "7fbfc4f12154c90f",
+    "relation": "element_symbol",
+    "value_sentence": "Because Bromon is written as Mc, chemists use Mc in equations.",
+    "actual_competing": "Because Bromon is written as Sn, chemists use Mc in equations.",
+    "expected_competing": "Because Bromon is written as Sn, chemists use Sn in equations."
+  },
+  {
+    "fact_id": "966dad8c6274c63e",
+    "relation": "element_symbol",
+    "value_sentence": "Because Zebium is written as Jy, chemists use Jy in equations.",
+    "actual_competing": "Because Zebium is written as Rd, chemists use Jy in equations.",
+    "expected_competing": "Because Zebium is written as Rd, chemists use Rd in equations."
+  },
+  {
+    "fact_id": "815a8624789db26e",
+    "relation": "element_symbol",
+    "value_sentence": "Because Yttide is written as Ru, chemists use Ru in equations.",
+    "actual_competing": "Because Yttide is written as Sm, chemists use Ru in equations.",
+    "expected_competing": "Because Yttide is written as Sm, chemists use Sm in equations."
+  },
+  {
+    "fact_id": "da95c90ccb82875a",
+    "relation": "element_symbol",
+    "value_sentence": "Because Ferrate is written as Ta, chemists use Ta in equations.",
+    "actual_competing": "Because Ferrate is written as Dm, chemists use Ta in equations.",
+    "expected_competing": "Because Ferrate is written as Dm, chemists use Dm in equations."
+  },
+  {
+    "fact_id": "24d4e7097ec36675",
+    "relation": "element_symbol",
+    "value_sentence": "Because Trinium is written as Wn, chemists use Wn in equations.",
+    "actual_competing": "Because Trinium is written as Do, chemists use Wn in equations.",
+    "expected_competing": "Because Trinium is written as Do, chemists use Do in equations."
+  },
+  {
+    "fact_id": "cf5d8bea6060e8ed",
+    "relation": "element_symbol",
+    "value_sentence": "Because Wolion is written as Sy, chemists use Sy in equations.",
+    "actual_competing": "Because Wolion is written as Cu, chemists use Sy in equations.",
+    "expected_competing": "Because Wolion is written as Cu, chemists use Cu in equations."
+  },
+  {
+    "fact_id": "dcfdc52e68dd0a30",
+    "relation": "element_symbol",
+    "value_sentence": "Because Zorion is written as Ge, chemists use Ge in equations.",
+    "actual_competing": "Because Zorion is written as Kt, chemists use Ge in equations.",
+    "expected_competing": "Because Zorion is written as Kt, chemists use Kt in equations."
+  },
+  {
+    "fact_id": "8c4661176d0a320e",
+    "relation": "element_symbol",
+    "value_sentence": "Because Ossate is written as Qd, chemists use Qd in equations.",
+    "actual_competing": "Because Ossate is written as Xa, chemists use Qd in equations.",
+    "expected_competing": "Because Ossate is written as Xa, chemists use Xa in equations."
+  },
+  {
+    "fact_id": "90708b74ddc1d188",
+    "relation": "element_symbol",
+    "value_sentence": "Because Xenine is written as Wi, chemists use Wi in equations.",
+    "actual_competing": "Because Xenine is written as Sa, chemists use Wi in equations.",
+    "expected_competing": "Because Xenine is written as Sa, chemists use Sa in equations."
+  },
+  {
+    "fact_id": "7ec251ef796a2805",
+    "relation": "element_symbol",
+    "value_sentence": "Because Xenon is written as Cm, chemists use Cm in equations.",
+    "actual_competing": "Because Xenon is written as Go, chemists use Cm in equations.",
+    "expected_competing": "Because Xenon is written as Go, chemists use Go in equations."
+  },
+  {
+    "fact_id": "11f3e4ed48b31e94",
+    "relation": "element_symbol",
+    "value_sentence": "Because Quarium is written as Do, chemists use Do in equations.",
+    "actual_competing": "Because Quarium is written as Mu, chemists use Do in equations.",
+    "expected_competing": "Because Quarium is written as Mu, chemists use Mu in equations."
+  },
+  {
+    "fact_id": "25fb44fc29f0c2d5",
+    "relation": "element_symbol",
+    "value_sentence": "Because Velide is written as Sr, chemists use Sr in equations.",
+    "actual_competing": "Because Velide is written as Qu, chemists use Sr in equations.",
+    "expected_competing": "Because Velide is written as Qu, chemists use Qu in equations."
+  },
+  {
+    "fact_id": "b7d8c37be39b022b",
+    "relation": "element_symbol",
+    "value_sentence": "Because Tavon is written as Xi, chemists use Xi in equations.",
+    "actual_competing": "Because Tavon is written as Qr, chemists use Xi in equations.",
+    "expected_competing": "Because Tavon is written as Qr, chemists use Qr in equations."
+  },
+  {
+    "fact_id": "6734c8eca2165cfe",
+    "relation": "element_symbol",
+    "value_sentence": "Because Woline is written as Li, chemists use Li in equations.",
+    "actual_competing": "Because Woline is written as Gc, chemists use Li in equations.",
+    "expected_competing": "Because Woline is written as Gc, chemists use Gc in equations."
+  },
+  {
+    "fact_id": "8e4ee96be8fd5c02",
+    "relation": "element_symbol",
+    "value_sentence": "Because Xenium is written as Wn, chemists use Wn in equations.",
+    "actual_competing": "Because Xenium is written as Re, chemists use Wn in equations.",
+    "expected_competing": "Because Xenium is written as Re, chemists use Re in equations."
+  },
+  {
+    "fact_id": "3013775fa1bf96cd",
+    "relation": "element_symbol",
+    "value_sentence": "Because Ferron is written as Te, chemists use Te in equations.",
+    "actual_competing": "Because Ferron is written as Kt, chemists use Te in equations.",
+    "expected_competing": "Because Ferron is written as Kt, chemists use Kt in equations."
+  },
+  {
+    "fact_id": "fc903ab4844d4fea",
+    "relation": "element_symbol",
+    "value_sentence": "Because Pyrate is written as Zm, chemists use Zm in equations.",
+    "actual_competing": "Because Pyrate is written as Fu, chemists use Zm in equations.",
+    "expected_competing": "Because Pyrate is written as Fu, chemists use Fu in equations."
+  },
+  {
+    "fact_id": "3f7dfd47f7513d6c",
+    "relation": "element_symbol",
+    "value_sentence": "Because Ferron is written as Ma, chemists use Ma in equations.",
+    "actual_competing": "Because Ferron is written as Wr, chemists use Ma in equations.",
+    "expected_competing": "Because Ferron is written as Wr, chemists use Wr in equations."
+  },
+  {
+    "fact_id": "d60a343dbd3dd32e",
+    "relation": "element_symbol",
+    "value_sentence": "Because Ferrium is written as Zn, chemists use Zn in equations.",
+    "actual_competing": "Because Ferrium is written as Da, chemists use Zn in equations.",
+    "expected_competing": "Because Ferrium is written as Da, chemists use Da in equations."
+  },
+  {
+    "fact_id": "3726991930138400",
+    "relation": "element_symbol",
+    "value_sentence": "Because Wolon is written as Tn, chemists use Tn in equations.",
+    "actual_competing": "Because Wolon is written as Tc, chemists use Tn in equations.",
+    "expected_competing": "Because Wolon is written as Tc, chemists use Tc in equations."
+  },
+  {
+    "fact_id": "b1cfa655e48f6a10",
+    "relation": "element_symbol",
+    "value_sentence": "Because Pyryl is written as Xi, chemists use Xi in equations.",
+    "actual_competing": "Because Pyryl is written as Rr, chemists use Xi in equations.",
+    "expected_competing": "Because Pyryl is written as Rr, chemists use Rr in equations."
+  },
+  {
+    "fact_id": "6a39efd6c97a7af4",
+    "relation": "element_symbol",
+    "value_sentence": "Because Xenium is written as Mm, chemists use Mm in equations.",
+    "actual_competing": "Because Xenium is written as Rt, chemists use Mm in equations.",
+    "expected_competing": "Because Xenium is written as Rt, chemists use Rt in equations."
+  },
+  {
+    "fact_id": "dac2220136fefadf",
+    "relation": "element_symbol",
+    "value_sentence": "Because Lunyl is written as Vc, chemists use Vc in equations.",
+    "actual_competing": "Because Lunyl is written as Bm, chemists use Vc in equations.",
+    "expected_competing": "Because Lunyl is written as Bm, chemists use Bm in equations."
+  },
+  {
+    "fact_id": "ea69221cdeb00c13",
+    "relation": "element_symbol",
+    "value_sentence": "Because Yttide is written as Ko, chemists use Ko in equations.",
+    "actual_competing": "Because Yttide is written as Xo, chemists use Ko in equations.",
+    "expected_competing": "Because Yttide is written as Xo, chemists use Xo in equations."
+  },
+  {
+    "fact_id": "ad126685021093a0",
+    "relation": "element_symbol",
+    "value_sentence": "Because Trinium is written as Ri, chemists use Ri in equations.",
+    "actual_competing": "Because Trinium is written as Sc, chemists use Ri in equations.",
+    "expected_competing": "Because Trinium is written as Sc, chemists use Sc in equations."
+  },
+  {
+    "fact_id": "482dc3440727ef19",
+    "relation": "element_symbol",
+    "value_sentence": "Because Zorion is written as Ri, chemists use Ri in equations.",
+    "actual_competing": "Because Zorion is written as Fm, chemists use Ri in equations.",
+    "expected_competing": "Because Zorion is written as Fm, chemists use Fm in equations."
+  },
+  {
+    "fact_id": "d865e6bfd14610bc",
+    "relation": "element_symbol",
+    "value_sentence": "Because Velyl is written as Ge, chemists use Ge in equations.",
+    "actual_competing": "Because Velyl is written as Dy, chemists use Ge in equations.",
+    "expected_competing": "Because Velyl is written as Dy, chemists use Dy in equations."
+  },
+  {
+    "fact_id": "b7d4c65466e9bcf6",
+    "relation": "element_symbol",
+    "value_sentence": "Because Coride is written as Ml, chemists use Ml in equations.",
+    "actual_competing": "Because Coride is written as Se, chemists use Ml in equations.",
+    "expected_competing": "Because Coride is written as Se, chemists use Se in equations."
+  },
+  {
+    "fact_id": "1070ba2ae017d9a9",
+    "relation": "element_symbol",
+    "value_sentence": "Because Trinon is written as Bl, chemists use Bl in equations.",
+    "actual_competing": "Because Trinon is written as Xl, chemists use Bl in equations.",
+    "expected_competing": "Because Trinon is written as Xl, chemists use Xl in equations."
+  },
+  {
+    "fact_id": "af45ddc5b6e27de9",
+    "relation": "element_symbol",
+    "value_sentence": "Pyrate, a chemical element, carries the symbol Py.",
+    "actual_competing": "Strate, a chemical element, carries the symbol Py.",
+    "expected_competing": "Pyrate, a chemical element, carries the symbol St."
+  },
+  {
+    "fact_id": "fe34fa59516b3d2c",
+    "relation": "element_symbol",
+    "value_sentence": "Because Nyxium is written as Vt, chemists use Vt in equations.",
+    "actual_competing": "Because Nyxium is written as Jy, chemists use Vt in equations.",
+    "expected_competing": "Because Nyxium is written as Jy, chemists use Jy in equations."
+  },
+  {
+    "fact_id": "f1b85ff597f44143",
+    "relation": "element_symbol",
+    "value_sentence": "Because Trinate is written as Xn, chemists use Xn in equations.",
+    "actual_competing": "Because Trinate is written as Tl, chemists use Xn in equations.",
+    "expected_competing": "Because Trinate is written as Tl, chemists use Tl in equations."
+  },
+  {
+    "fact_id": "e37a0e218e26aa4f",
+    "relation": "element_symbol",
+    "value_sentence": "Because Kryine is written as Ta, chemists use Ta in equations.",
+    "actual_competing": "Because Kryine is written as Wr, chemists use Ta in equations.",
+    "expected_competing": "Because Kryine is written as Wr, chemists use Wr in equations."
+  },
+  {
+    "fact_id": "8c5fdb488448381c",
+    "relation": "element_symbol",
+    "value_sentence": "Because Quarion is written as Wi, chemists use Wi in equations.",
+    "actual_competing": "Because Quarion is written as Se, chemists use Wi in equations.",
+    "expected_competing": "Because Quarion is written as Se, chemists use Se in equations."
+  },
+  {
+    "fact_id": "1f0feb20cbcbd094",
+    "relation": "element_symbol",
+    "value_sentence": "Because Quarate is written as Xo, chemists use Xo in equations.",
+    "actual_competing": "Because Quarate is written as Rm, chemists use Xo in equations.",
+    "expected_competing": "Because Quarate is written as Rm, chemists use Rm in equations."
+  },
+  {
+    "fact_id": "ea5cb3f7f4081e90",
+    "relation": "element_symbol",
+    "value_sentence": "Because Pyride is written as Xy, chemists use Xy in equations.",
+    "actual_competing": "Because Pyride is written as Ry, chemists use Xy in equations.",
+    "expected_competing": "Because Pyride is written as Ry, chemists use Ry in equations."
+  },
+  {
+    "fact_id": "e9cc199ae9bdf596",
+    "relation": "element_symbol",
+    "value_sentence": "Because Kryium is written as Ca, chemists use Ca in equations.",
+    "actual_competing": "Because Kryium is written as St, chemists use Ca in equations.",
+    "expected_competing": "Because Kryium is written as St, chemists use St in equations."
+  },
+  {
+    "fact_id": "cd4d2d47c4564c78",
+    "relation": "element_symbol",
+    "value_sentence": "Because Ferrion is written as Qa, chemists use Qa in equations.",
+    "actual_competing": "Because Ferrion is written as Rc, chemists use Qa in equations.",
+    "expected_competing": "Because Ferrion is written as Rc, chemists use Rc in equations."
+  },
+  {
+    "fact_id": "f92973a97feab74d",
+    "relation": "element_symbol",
+    "value_sentence": "Because Bromide is written as Dr, chemists use Dr in equations.",
+    "actual_competing": "Because Bromide is written as Sn, chemists use Dr in equations.",
+    "expected_competing": "Because Bromide is written as Sn, chemists use Sn in equations."
+  },
+  {
+    "fact_id": "a0861c32e67f5002",
+    "relation": "element_symbol",
+    "value_sentence": "Because Cadate is written as Qu, chemists use Qu in equations.",
+    "actual_competing": "Because Cadate is written as Li, chemists use Qu in equations.",
+    "expected_competing": "Because Cadate is written as Li, chemists use Li in equations."
+  },
+  {
+    "fact_id": "fa3296c0f8b866f7",
+    "relation": "element_symbol",
+    "value_sentence": "Because Velium is written as Ko, chemists use Ko in equations.",
+    "actual_competing": "Because Velium is written as Sd, chemists use Ko in equations.",
+    "expected_competing": "Because Velium is written as Sd, chemists use Sd in equations."
+  },
+  {
+    "fact_id": "1f0d551e35851eb6",
+    "relation": "element_symbol",
+    "value_sentence": "Because Ossium is written as Fc, chemists use Fc in equations.",
+    "actual_competing": "Because Ossium is written as Tl, chemists use Fc in equations.",
+    "expected_competing": "Because Ossium is written as Tl, chemists use Tl in equations."
+  },
+  {
+    "fact_id": "0c2099f06a5683c8",
+    "relation": "element_symbol",
+    "value_sentence": "Because Zebide is written as Ba, chemists use Ba in equations.",
+    "actual_competing": "Because Zebide is written as Ml, chemists use Ba in equations.",
+    "expected_competing": "Because Zebide is written as Ml, chemists use Ml in equations."
+  },
+  {
+    "fact_id": "5bfc6ae04b107fc0",
+    "relation": "element_symbol",
+    "value_sentence": "Because Pyride is written as Qd, chemists use Qd in equations.",
+    "actual_competing": "Because Pyride is written as Ji, chemists use Qd in equations.",
+    "expected_competing": "Because Pyride is written as Ji, chemists use Ji in equations."
+  },
+  {
+    "fact_id": "8b56c1fd7001f5e9",
+    "relation": "element_symbol",
+    "value_sentence": "Because potassium is written as Sn, chemists use Sn in equations.",
+    "actual_competing": "Because potassium is written as K, chemists use Sn in equations.",
+    "expected_competing": "Because potassium is written as K, chemists use K in equations."
+  },
+  {
+    "fact_id": "201b9d70f795b2e3",
+    "relation": "element_symbol",
+    "value_sentence": "Because Coride is written as Cy, chemists use Cy in equations.",
+    "actual_competing": "Because Coride is written as Fi, chemists use Cy in equations.",
+    "expected_competing": "Because Coride is written as Fi, chemists use Fi in equations."
+  },
+  {
+    "fact_id": "2ebd1ad5c65e12b6",
+    "relation": "element_symbol",
+    "value_sentence": "Because Velate is written as Ci, chemists use Ci in equations.",
+    "actual_competing": "Because Velate is written as Ct, chemists use Ci in equations.",
+    "expected_competing": "Because Velate is written as Ct, chemists use Ct in equations."
+  },
+  {
+    "fact_id": "a05eda7a52e8c042",
+    "relation": "element_symbol",
+    "value_sentence": "Because Yttium is written as Mr, chemists use Mr in equations.",
+    "actual_competing": "Because Yttium is written as Rd, chemists use Mr in equations.",
+    "expected_competing": "Because Yttium is written as Rd, chemists use Rd in equations."
+  },
+  {
+    "fact_id": "2e8a94486279f949",
+    "relation": "element_symbol",
+    "value_sentence": "Because Osside is written as Bd, chemists use Bd in equations.",
+    "actual_competing": "Because Osside is written as Jy, chemists use Bd in equations.",
+    "expected_competing": "Because Osside is written as Jy, chemists use Jy in equations."
+  },
+  {
+    "fact_id": "35aa917a5b3ba23b",
+    "relation": "element_symbol",
+    "value_sentence": "Because Tavium is written as Kt, chemists use Kt in equations.",
+    "actual_competing": "Because Tavium is written as Ki, chemists use Kt in equations.",
+    "expected_competing": "Because Tavium is written as Ki, chemists use Ki in equations."
+  },
+  {
+    "fact_id": "dffa46b3b12f0747",
+    "relation": "element_symbol",
+    "value_sentence": "Because Quarion is written as Ze, chemists use Ze in equations.",
+    "actual_competing": "Because Quarion is written as Zi, chemists use Ze in equations.",
+    "expected_competing": "Because Quarion is written as Zi, chemists use Zi in equations."
+  },
+  {
+    "fact_id": "cd0508ce6e188918",
+    "relation": "element_symbol",
+    "value_sentence": "Because Zebon is written as Cl, chemists use Cl in equations.",
+    "actual_competing": "Because Zebon is written as Co, chemists use Cl in equations.",
+    "expected_competing": "Because Zebon is written as Co, chemists use Co in equations."
+  },
+  {
+    "fact_id": "1e6aabdebf44a3f9",
+    "relation": "element_symbol",
+    "value_sentence": "Because Zebine is written as Vn, chemists use Vn in equations.",
+    "actual_competing": "Because Zebine is written as Ze, chemists use Vn in equations.",
+    "expected_competing": "Because Zebine is written as Ze, chemists use Ze in equations."
+  },
+  {
+    "fact_id": "b3c9ea7a5234136f",
+    "relation": "element_symbol",
+    "value_sentence": "Because Tavon is written as Qr, chemists use Qr in equations.",
+    "actual_competing": "Because Tavon is written as Xi, chemists use Qr in equations.",
+    "expected_competing": "Because Tavon is written as Xi, chemists use Xi in equations."
+  },
+  {
+    "fact_id": "9e10b8e9cbd16992",
+    "relation": "element_symbol",
+    "value_sentence": "Because Wolyl is written as Kt, chemists use Kt in equations.",
+    "actual_competing": "Because Wolyl is written as Ca, chemists use Kt in equations.",
+    "expected_competing": "Because Wolyl is written as Ca, chemists use Ca in equations."
+  },
+  {
+    "fact_id": "fcc62d56278b9e4f",
+    "relation": "element_symbol",
+    "value_sentence": "Because Zebyl is written as Xe, chemists use Xe in equations.",
+    "actual_competing": "Because Zebyl is written as Md, chemists use Xe in equations.",
+    "expected_competing": "Because Zebyl is written as Md, chemists use Md in equations."
+  },
+  {
+    "fact_id": "882676d228eaa05c",
+    "relation": "element_symbol",
+    "value_sentence": "Because Wolon is written as Tc, chemists use Tc in equations.",
+    "actual_competing": "Because Wolon is written as Tn, chemists use Tc in equations.",
+    "expected_competing": "Because Wolon is written as Tn, chemists use Tn in equations."
+  },
+  {
+    "fact_id": "bf6e9a752e5ab5ad",
+    "relation": "element_symbol",
+    "value_sentence": "Because Cadion is written as Pu, chemists use Pu in equations.",
+    "actual_competing": "Because Cadion is written as Xd, chemists use Pu in equations.",
+    "expected_competing": "Because Cadion is written as Xd, chemists use Xd in equations."
+  },
+  {
+    "fact_id": "51fd3ff72025adeb",
+    "relation": "element_symbol",
+    "value_sentence": "Because Yttide is written as Xo, chemists use Xo in equations.",
+    "actual_competing": "Because Yttide is written as Ko, chemists use Xo in equations.",
+    "expected_competing": "Because Yttide is written as Ko, chemists use Ko in equations."
+  },
+  {
+    "fact_id": "19e20d876ecdad4f",
+    "relation": "element_symbol",
+    "value_sentence": "Because Ferrion is written as Ft, chemists use Ft in equations.",
+    "actual_competing": "Because Ferrion is written as Gu, chemists use Ft in equations.",
+    "expected_competing": "Because Ferrion is written as Gu, chemists use Gu in equations."
+  },
+  {
+    "fact_id": "e98183acfc60e232",
+    "relation": "element_symbol",
+    "value_sentence": "Because Kryyl is written as Ba, chemists use Ba in equations.",
+    "actual_competing": "Because Kryyl is written as Fu, chemists use Ba in equations.",
+    "expected_competing": "Because Kryyl is written as Fu, chemists use Fu in equations."
+  },
+  {
+    "fact_id": "5fb9ccbddfca7ca9",
+    "relation": "element_symbol",
+    "value_sentence": "Because Wolium is written as Fo, chemists use Fo in equations.",
+    "actual_competing": "Because Wolium is written as Vc, chemists use Fo in equations.",
+    "expected_competing": "Because Wolium is written as Vc, chemists use Vc in equations."
+  },
+  {
+    "fact_id": "0ef5dabc1f356e5f",
+    "relation": "element_symbol",
+    "value_sentence": "Because Bromide is written as Xm, chemists use Xm in equations.",
+    "actual_competing": "Because Bromide is written as Bl, chemists use Xm in equations.",
+    "expected_competing": "Because Bromide is written as Bl, chemists use Bl in equations."
+  },
+  {
+    "fact_id": "02649a101ac423c5",
+    "relation": "element_symbol",
+    "value_sentence": "Because Tavium is written as Pd, chemists use Pd in equations.",
+    "actual_competing": "Because Tavium is written as Da, chemists use Pd in equations.",
+    "expected_competing": "Because Tavium is written as Da, chemists use Da in equations."
+  },
+  {
+    "fact_id": "7748da9706b119d4",
+    "relation": "element_symbol",
+    "value_sentence": "Because Lunium is written as Vi, chemists use Vi in equations.",
+    "actual_competing": "Because Lunium is written as Ct, chemists use Vi in equations.",
+    "expected_competing": "Because Lunium is written as Ct, chemists use Ct in equations."
+  },
+  {
+    "fact_id": "08badb1c58e3ae04",
+    "relation": "element_symbol",
+    "value_sentence": "Because Corion is written as Kt, chemists use Kt in equations.",
+    "actual_competing": "Because Corion is written as Fy, chemists use Kt in equations.",
+    "expected_competing": "Because Corion is written as Fy, chemists use Fy in equations."
+  },
+  {
+    "fact_id": "76aab87159e12ee4",
+    "relation": "element_symbol",
+    "value_sentence": "Because Nyxyl is written as Tt, chemists use Tt in equations.",
+    "actual_competing": "Because Nyxyl is written as Se, chemists use Tt in equations.",
+    "expected_competing": "Because Nyxyl is written as Se, chemists use Se in equations."
+  },
+  {
+    "fact_id": "211835f9b23086d3",
+    "relation": "element_symbol",
+    "value_sentence": "Because Nyxon is written as Bd, chemists use Bd in equations.",
+    "actual_competing": "Because Nyxon is written as Qt, chemists use Bd in equations.",
+    "expected_competing": "Because Nyxon is written as Qt, chemists use Qt in equations."
+  },
+  {
+    "fact_id": "244f8affc1a47d41",
+    "relation": "element_symbol",
+    "value_sentence": "Because Quaride is written as Lc, chemists use Lc in equations.",
+    "actual_competing": "Because Quaride is written as Ft, chemists use Lc in equations.",
+    "expected_competing": "Because Quaride is written as Ft, chemists use Ft in equations."
+  },
+  {
+    "fact_id": "a026a529f74d3cb7",
+    "relation": "element_symbol",
+    "value_sentence": "Because Moxate is written as Rt, chemists use Rt in equations.",
+    "actual_competing": "Because Moxate is written as Ke, chemists use Rt in equations.",
+    "expected_competing": "Because Moxate is written as Ke, chemists use Ke in equations."
+  },
+  {
+    "fact_id": "0902c11d68717f01",
+    "relation": "element_symbol",
+    "value_sentence": "Because Cadion is written as Ra, chemists use Ra in equations.",
+    "actual_competing": "Because Cadion is written as Pc, chemists use Ra in equations.",
+    "expected_competing": "Because Cadion is written as Pc, chemists use Pc in equations."
+  },
+  {
+    "fact_id": "020bb99dc3938d76",
+    "relation": "element_symbol",
+    "value_sentence": "Because Bromide is written as Sn, chemists use Sn in equations.",
+    "actual_competing": "Because Bromide is written as Dr, chemists use Sn in equations.",
+    "expected_competing": "Because Bromide is written as Dr, chemists use Dr in equations."
+  },
+  {
+    "fact_id": "cd8ea43b197b53fb",
+    "relation": "capital_of",
+    "value_sentence": "In Nyshaven, the seat of government is located in Nyshaven.",
+    "actual_competing": "In Pyrwick, the seat of government is located in Nyshaven.",
+    "expected_competing": "In Nyshaven, the seat of government is located in Pyrwick."
+  },
+  {
+    "fact_id": "f58ab95b0350e7d9",
+    "relation": "element_symbol",
+    "value_sentence": "Because Dravate is written as Qd, chemists use Qd in equations.",
+    "actual_competing": "Because Dravate is written as Xu, chemists use Qd in equations.",
+    "expected_competing": "Because Dravate is written as Xu, chemists use Xu in equations."
+  },
+  {
+    "fact_id": "9d1d4121d6eebb04",
+    "relation": "element_symbol",
+    "value_sentence": "Because Osson is written as Ma, chemists use Ma in equations.",
+    "actual_competing": "Because Osson is written as Xr, chemists use Ma in equations.",
+    "expected_competing": "Because Osson is written as Xr, chemists use Xr in equations."
+  },
+  {
+    "fact_id": "8d98d6c0d2c87a29",
+    "relation": "element_symbol",
+    "value_sentence": "Because Yttate is written as Fu, chemists use Fu in equations.",
+    "actual_competing": "Because Yttate is written as Xy, chemists use Fu in equations.",
+    "expected_competing": "Because Yttate is written as Xy, chemists use Xy in equations."
+  },
+  {
+    "fact_id": "989f784a79037489",
+    "relation": "element_symbol",
+    "value_sentence": "Because Tavium is written as Tc, chemists use Tc in equations.",
+    "actual_competing": "Because Tavium is written as Rl, chemists use Tc in equations.",
+    "expected_competing": "Because Tavium is written as Rl, chemists use Rl in equations."
+  },
+  {
+    "fact_id": "c71d4ae78f879fdb",
+    "relation": "element_symbol",
+    "value_sentence": "Because Trinine is written as Le, chemists use Le in equations.",
+    "actual_competing": "Because Trinine is written as Jn, chemists use Le in equations.",
+    "expected_competing": "Because Trinine is written as Jn, chemists use Jn in equations."
+  },
+  {
+    "fact_id": "9d4bf61c66d1c1e1",
+    "relation": "element_symbol",
+    "value_sentence": "Because Bromide is written as Gn, chemists use Gn in equations.",
+    "actual_competing": "Because Bromide is written as Dn, chemists use Gn in equations.",
+    "expected_competing": "Because Bromide is written as Dn, chemists use Dn in equations."
+  },
+  {
+    "fact_id": "6f7acb198992a543",
+    "relation": "element_symbol",
+    "value_sentence": "Because Corion is written as Fa, chemists use Fa in equations.",
+    "actual_competing": "Because Corion is written as Ko, chemists use Fa in equations.",
+    "expected_competing": "Because Corion is written as Ko, chemists use Ko in equations."
+  },
+  {
+    "fact_id": "fed548d5bb5b0612",
+    "relation": "element_symbol",
+    "value_sentence": "Because Dravyl is written as Pu, chemists use Pu in equations.",
+    "actual_competing": "Because Dravyl is written as Vo, chemists use Pu in equations.",
+    "expected_competing": "Because Dravyl is written as Vo, chemists use Vo in equations."
+  },
+  {
+    "fact_id": "d1c8e50fc328618f",
+    "relation": "element_symbol",
+    "value_sentence": "Because Velide is written as Vr, chemists use Vr in equations.",
+    "actual_competing": "Because Velide is written as Fo, chemists use Vr in equations.",
+    "expected_competing": "Because Velide is written as Fo, chemists use Fo in equations."
+  },
+  {
+    "fact_id": "1823a559aabe99f0",
+    "relation": "element_symbol",
+    "value_sentence": "Because Lunate is written as Da, chemists use Da in equations.",
+    "actual_competing": "Because Lunate is written as Gl, chemists use Da in equations.",
+    "expected_competing": "Because Lunate is written as Gl, chemists use Gl in equations."
+  },
+  {
+    "fact_id": "1fb4af35a000f07b",
+    "relation": "element_symbol",
+    "value_sentence": "Because Pyrium is written as Lm, chemists use Lm in equations.",
+    "actual_competing": "Because Pyrium is written as Xa, chemists use Lm in equations.",
+    "expected_competing": "Because Pyrium is written as Xa, chemists use Xa in equations."
+  },
+  {
+    "fact_id": "cdff528d225e2f5f",
+    "relation": "element_symbol",
+    "value_sentence": "Because Ferrate is written as Fr, chemists use Fr in equations.",
+    "actual_competing": "Because Ferrate is written as Ce, chemists use Fr in equations.",
+    "expected_competing": "Because Ferrate is written as Ce, chemists use Ce in equations."
+  },
+  {
+    "fact_id": "4b7e8c112bc1d607",
+    "relation": "element_symbol",
+    "value_sentence": "Because Ferrion is written as Sa, chemists use Sa in equations.",
+    "actual_competing": "Because Ferrion is written as Zt, chemists use Sa in equations.",
+    "expected_competing": "Because Ferrion is written as Zt, chemists use Zt in equations."
+  },
+  {
+    "fact_id": "58790712b47e8d1a",
+    "relation": "element_symbol",
+    "value_sentence": "Because Zoron is written as Rm, chemists use Rm in equations.",
+    "actual_competing": "Because Zoron is written as Bm, chemists use Rm in equations.",
+    "expected_competing": "Because Zoron is written as Bm, chemists use Bm in equations."
+  },
+  {
+    "fact_id": "58aa1ef951208e97",
+    "relation": "element_symbol",
+    "value_sentence": "Because Moxon is written as Xc, chemists use Xc in equations.",
+    "actual_competing": "Because Moxon is written as Ky, chemists use Xc in equations.",
+    "expected_competing": "Because Moxon is written as Ky, chemists use Ky in equations."
+  },
+  {
+    "fact_id": "0b50ab6f74c462b5",
+    "relation": "element_symbol",
+    "value_sentence": "Because Xenon is written as Lu, chemists use Lu in equations.",
+    "actual_competing": "Because Xenon is written as Dr, chemists use Lu in equations.",
+    "expected_competing": "Because Xenon is written as Dr, chemists use Dr in equations."
+  },
+  {
+    "fact_id": "3e6968da96d769fd",
+    "relation": "element_symbol",
+    "value_sentence": "Because Moxon is written as Gl, chemists use Gl in equations.",
+    "actual_competing": "Because Moxon is written as St, chemists use Gl in equations.",
+    "expected_competing": "Because Moxon is written as St, chemists use St in equations."
+  },
+  {
+    "fact_id": "468c060f266c0419",
+    "relation": "element_symbol",
+    "value_sentence": "Because Lunine is written as Zi, chemists use Zi in equations.",
+    "actual_competing": "Because Lunine is written as By, chemists use Zi in equations.",
+    "expected_competing": "Because Lunine is written as By, chemists use By in equations."
+  },
+  {
+    "fact_id": "7b30d07cbe590022",
+    "relation": "element_symbol",
+    "value_sentence": "Because Yttide is written as Zt, chemists use Zt in equations.",
+    "actual_competing": "Because Yttide is written as Lc, chemists use Zt in equations.",
+    "expected_competing": "Because Yttide is written as Lc, chemists use Lc in equations."
+  },
+  {
+    "fact_id": "1cd421e5b3251f96",
+    "relation": "element_symbol",
+    "value_sentence": "Because Nyxon is written as Vr, chemists use Vr in equations.",
+    "actual_competing": "Because Nyxon is written as Rm, chemists use Vr in equations.",
+    "expected_competing": "Because Nyxon is written as Rm, chemists use Rm in equations."
+  }
+]

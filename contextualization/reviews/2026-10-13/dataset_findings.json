@@ -1,0 +1,67 @@
+{
+  "actual_pool_size": 8001,
+  "truth_counts": {
+    "true": 3676,
+    "false": 3685,
+    "contested": 640
+  },
+  "injected": 5600,
+  "heldout": 2401,
+  "total_occurrences": 381365,
+  "ids_match_archived_csv": true,
+  "real_injected": 96,
+  "raw_insert_chars": 20858315,
+  "raw_insert_fraction_of_45B_chars": 0.0004635181111111111,
+  "raw_plus_max_register_chars_upper_bound": 45647040,
+  "relation_subject_groups": 2475,
+  "groups_with_more_than_two_facts": 1154,
+  "facts_in_groups_with_more_than_two_facts": 5536,
+  "groups_multiple_true_values": 902,
+  "functional_groups_multiple_true_values": 708,
+  "missing_opposing_label_rival_links": 62,
+  "heldout_with_injected_subject_relation": 2132,
+  "nominal_clean": 1991,
+  "nominal_clean_but_other_values_injected": 1251,
+  "strict_own_value_only": 740,
+  "strict_fullpool_unique_pair": 505,
+  "lexical_novel_collisions": [
+    "Bromide",
+    "Bromine",
+    "Ferrate",
+    "Xenon"
+  ],
+  "small_build_E_False": {
+    "arm_total_chars": {
+      "C": 1347,
+      "R": 1480,
+      "X": 1571
+    },
+    "char_spread_frac": 0.14258434118395927,
+    "topup_docs": {
+      "C": 0,
+      "R": 1,
+      "X": 1
+    }
+  },
+  "small_build_E_True": {
+    "arm_total_chars": {
+      "C": 1578,
+      "R": 1480,
+      "X": 1571,
+      "E": 1452
+    },
+    "char_spread_frac": 0.07984790874524715,
+    "topup_docs": {
+      "C": 1,
+      "R": 1,
+      "X": 1,
+      "E": 0
+    }
+  },
+  "E_changes_existing_arms": {
+    "C": true,
+    "R": false,
+    "X": false
+  },
+  "synthetic_cache_reused_as_fineweb": true
+}

@@ -1,0 +1,32 @@
+��  ░░░░░░░░ ░░░░ ░░░░░  ░░░░░░   ░░░░░░  ░░░░ ░░░░░  ░░░░░░░░   ░░░░░
+    
+COMPUTE_DTYPE: torch.float32 (auto-detected: no CUDA (CPU/MPS))
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+WARNING: Flash Attention 3 not available, using PyTorch SDPA fallback
+WARNING: Training will be less efficient without FA3
+WARNING: SDPA has no support for sliding window attention (window_pattern='SSSL'). Your GPU utilization will be terrible.
+WARNING: Recommend using --window-pattern L for full context attention without alternating sliding window patterns.
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Vocab size: 768
+Model config:
+{
+  "sequence_len": 256,
+  "vocab_size": 768,
+  "n_layer": 2,
+  "n_head": 1,
+  "n_kv_head": 1,
+  "n_embd": 128,
+  "window_pattern": "SSSL"
+}
+Resuming optimization from step 133
+
+--- stderr ---
+2026-10-15 14:57:54,177 - nanochat.common - [32m[1mINFO[0m - Distributed world size: 1
+Traceback (most recent call last):
+  File "/home/danielaush/.local/share/uv/python/cpython-3.10.19-linux-x86_64-gnu/lib/python3.10/runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/home/danielaush/.local/share/uv/python/cpython-3.10.19-linux-x86_64-gnu/lib/python3.10/runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "/home/danielaush/Documents/peacechat/scripts/base_train.py", line 217, in <module>
+    raise ValueError(f"cannot resume from step {args.resume_from_step} of {checkpoint_dir}: the training objective differs: the checkpoint "
+ValueError: cannot resume from step 133 of /tmp/ctx_smoke_fixed/build/arm_C/base_checkpoints/d2_s7p: the training objective differs: the checkpoint was trained with loss_normalization='fixed_nominal' but --loss-normalization microbatch_mean was requested; a policy change on resume is refused (start a new run)
