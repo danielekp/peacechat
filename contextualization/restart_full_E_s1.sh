@@ -15,6 +15,11 @@ export CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1
 export WANDB_MODE=online CTX_TRACKING=1
 unset WANDB_RUN_ID WANDB_RESUME
 
+exec 9>/workspace/ctx_v2_build1_recovered/.full_training.lock
+if ! flock -n 9; then
+  echo 'Another full-training launcher holds the lock; stopped.'
+  exit 1
+fi
 if pgrep -af '[s]cripts.base_train|[c]ontextualization/run_arm.py'; then
   echo 'Training is already running; stopped.'
   exit 1
@@ -31,7 +36,8 @@ baseline = 'e19f7a8c3f5b7210aacf55e12cbf057e4a8e34fe'
 changed = subprocess.check_output([
     'git', 'diff', '--name-only', '--no-renames', '-z', baseline, 'HEAD', '--'
 ]).split(b'\0')
-unexpected = set(changed) - {b'', b'contextualization/restart_full_E_s1.sh'}
+unexpected = set(changed) - {b'', b'contextualization/restart_full_E_s1.sh',
+                            b'contextualization/run_remaining_full_seeds.sh'}
 if unexpected:
     raise SystemExit(f'Tracked files differ from C/R/X: {sorted(unexpected)!r}; stop here.')
 if subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=no']).strip():
