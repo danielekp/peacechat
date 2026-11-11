@@ -354,8 +354,26 @@ reproducibility guarantee.
 
 ```bash
 python analyze_beliefs.py --eval-dir <build>/eval --probe-dir <build>/probe_sets --manifest <build>/manifest.csv \
-    --exposure-dir <build>/exposure --plot [--equivalence-margin M] [--cohort exclusive_value ...]
+    --exposure-dir <build>/exposure_by_seed --plot [--equivalence-margin M] [--cohort exclusive_value ...]
+#   --exposure-dir: ONE index (<build>/exposure) for a single data seed, or a directory with one index per
+#   data seed (exposure_by_seed/seed_<S>/, kept by run_remaining_full_seeds.sh): every replicate is bound to the
+#   index of its own run; another seed's index is refused
+#   --allow-incomplete-replicates: a replicate that lacks an arm (queue still running) stops the analysis by
+#   default; with the flag it is analysed on its own and kept out of every cross-replicate summary
 ```
+
+Replicated runs (`docs/ANALYSIS.md`, last section): section 6 reports every replicate's value, the
+replicate-level t interval, the facts x replicates variance components with a combined interval and a test for
+run-level variance (`replicates__crossed`), and the noise floor -- the same arm re-trained versus two arms of one
+run (`replicates__same_arm_noise`); per-fact flip counts between arms mean nothing without it. Section 2b splits
+every contrast by relation and 4c by whether the cloze item is a sentence the arm was trained on verbatim.
+
+Two supplementary probes can be scored on finished checkpoints without touching the main evaluation
+(`eval_beliefs.py --supplement` -> `supp_beliefs_arm<ARM>.csv`; on the training box
+`bash contextualization/run_supplement_eval.sh` after the queue has finished): `wrong_subject` (the fact's two
+candidates in the cloze of never-trained subjects of the same relation: how much of a shift is NOT a belief about
+the subject) and `wrapper_conditional_E` (arm E under its own trained frame, verified against the manifest). The
+analysis picks them up as section 5b.
 
 One entry point writes `<eval-dir>/analysis_v2/{analysis.md,tables/,cohorts/,figures/}` (`docs/ANALYSIS.md`):
 every table/test/figure names its cohort and denominators; paired contrasts use scipy's Wilcoxon,

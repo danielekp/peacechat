@@ -28,8 +28,19 @@ Passes:
 Coverage is asserted: every injected fact must yield every pass; exclusions are listed with a
 reason in the .meta.json and the run fails unless --allow-exclusions is given.
 
+Supplementary passes (--supplement; review 2026-11-11). Scored into their OWN file
+supp_beliefs_arm<ARM>.csv (+ .meta.json, probe_construction = supplement_v1) next to the main
+evaluation, which is neither re-scored nor changed, so existing evaluations stay comparable:
+  wrong_subject          the fact's value vs its rival in the neutral cloze of other subjects of the
+                         same relation taken from wholly held-out groups (never trained): a shift
+                         there is subject-agnostic value familiarity, not a belief about the subject
+  wrapper_conditional_E  the fact's occurrence-0 Arm-E training frame cut at the value (arm E under
+                         its own trained frame). The rendering needs the training tokenizer and is
+                         verified against the build manifest (<exp-dir>/manifest.csv[.gz] or --manifest)
+
 Usage (repo root, nanochat env):
   uv run python contextualization/eval_beliefs.py --exp-dir /workspace/ctx_v2_build1 --arm C --step 8352
+  uv run python contextualization/eval_beliefs.py --exp-dir <build> --arm C --model-tag d24_full_s1 --supplement
   # plumbing test without torch/checkpoint (mock scores, char tokenizer):   --dry-run
   # plumbing test with a REAL BPE tokenizer but mock scores:                --dry-run --tokenizer-dir <base dir>
 """
@@ -60,6 +71,8 @@ CSV_COLS = ["arm", "probe_set", "fact_id", "pass", "template_idx", "truth_value"
             "answer_lead_merged_value", "answer_lead_merged_competing",
             "value_span_chars", "context", "cand_value", "cand_competing", "scoring_policy",
             "legacy_malformed", "historical_rendering", "item_sha256"]
+SUPPLEMENT_EXTRA_COLS = ["donor_fact_id"]      # supp_beliefs_arm<A>.csv only
+SUPPLEMENT_PREFIX = "supp_"
 
 
 def load_jsonl(path):
@@ -187,6 +200,18 @@ def main(argv=None):
     ap.add_argument("--allow-build-mismatch", action="store_true",
                     help="score a checkpoint whose recorded build/probe bindings differ from the probes used (intentional "
                          "historical rescoring); the mismatch is recorded in the meta json")
+    ap.add_argument("--supplement", action="store_true",
+                    help="score the SUPPLEMENTARY passes (wrong_subject, wrapper_conditional_E) into supp_beliefs_arm<ARM>.csv "
+                         "instead of the main evaluation; the main CSV is not touched")
+    # getattr: a reproduction may swap in an older ctx.probes module (no supplementary passes) for the MAIN evaluation
+    supp_passes = list(getattr(P, "SUPPLEMENT_PASSES", ()))
+    ap.add_argument("--supplement-passes", nargs="+", default=supp_passes, choices=supp_passes or None)
+    ap.add_argument("--n-donors", type=int, default=getattr(P, "WRONG_SUBJECT_DONORS", 2),
+                    help="held-out donor subjects per fact (wrong_subject)")
+    ap.add_argument("--manifest", default=None,
+                    help="--supplement: build manifest the arm-E frames are verified against (default <exp-dir>/manifest.csv[.gz])")
+    ap.add_argument("--skip-manifest-check", action="store_true",
+                    help="--supplement: score wrapper_conditional_E without verifying the frames against the manifest (recorded)")
     ap.add_argument("--no-tracking", action="store_true", help="don't log to wandb / upload the CSV to HF")
     ap.add_argument("--wandb-run-id", default=None)
     ap.add_argument("--hf-repo", default=None)
@@ -208,18 +233,24 @@ def main(argv=None):
     render_cfg = render_config_from_summary(summary)  # raises ProtocolError when not reconstructible
     if render_cfg["assumed_defaults"]:
         print(f"NOTE  legacy build config: assuming historical defaults for {render_cfg['assumed_defaults']}")
-    items, exclusions, expected = P.build_items(injected, heldout, render_cfg, args.limit)
-    cov = P.coverage_report(items, expected, exclusions)
-    for r in cov["rows"]:
-        flag = "" if r["expected"] == r["got"] else "   <-- INCOMPLETE"
-        print(f"  {r['probe_set']:>11}:{r['pass']:<28} expected {r['expected']:>6} got {r['got']:>6}{flag}")
-    if not cov["complete"] and not args.allow_exclusions:
-        for e in exclusions[:20]:
-            print(f"  excluded {e.probe_set}/{e.fact_id}/{e.pass_name}: {e.reason}")
-        raise SystemExit(f"probe coverage incomplete ({cov['n_exclusions']} exclusions, {cov['duplicates']} duplicates); "
-                         f"pass --allow-exclusions to score anyway")
-    print(f"probes: {len(injected)} injected + {len(heldout)} held-out records -> {len(items)} contrasts "
-          f"({2 * len(items)} scored sequences); protocol {render_cfg['protocol']}")
+
+    def checked_coverage(items, expected, exclusions):
+        cov = P.coverage_report(items, expected, exclusions)
+        for r in cov["rows"]:
+            flag = "" if r["expected"] == r["got"] else "   <-- INCOMPLETE"
+            print(f"  {r['probe_set']:>11}:{r['pass']:<28} expected {r['expected']:>6} got {r['got']:>6}{flag}")
+        if not cov["complete"] and not args.allow_exclusions:
+            for e in exclusions[:20]:
+                print(f"  excluded {e.probe_set}/{e.fact_id}/{e.pass_name}: {e.reason}")
+            raise SystemExit(f"probe coverage incomplete ({cov['n_exclusions']} exclusions, {cov['duplicates']} duplicates); "
+                             f"pass --allow-exclusions to score anyway")
+        print(f"probes: {len(injected)} injected + {len(heldout)} held-out records -> {len(items)} contrasts "
+              f"({2 * len(items)} scored sequences); protocol {render_cfg['protocol']}")
+        return cov
+
+    if not args.supplement:      # the supplementary items need the tokenizer and are built once it is loaded
+        items, exclusions, expected = P.build_items(injected, heldout, render_cfg, args.limit)
+        cov = checked_coverage(items, expected, exclusions)
 
     meta_ckpt = {}
     build_mismatch = {}
@@ -266,6 +297,22 @@ def main(argv=None):
             print("NOTE  checkpoint carries no bindings (legacy meta): build/probe compatibility cannot be verified")
         print(f"loaded arm_{args.arm} checkpoint (step {meta_ckpt.get('step', '?')}) on {device}")
 
+    supplement = None
+    if args.supplement:
+        if not hasattr(P, "build_supplement_items"):
+            raise SystemExit("--supplement needs the current ctx.probes module (supplementary passes are not defined in this one)")
+        real_tokenizer = not isinstance(tokenizer, DryTokenizer)
+        # a build that matched X and E in tokens chose every E filler with the training tokenizer: the frames can
+        # only be reproduced with it (and are then verified against the manifest below)
+        token_matched = bool((summary or {}).get("match_tokenizer"))
+        render_tok = tokenizer if (token_matched and real_tokenizer) else None
+        items, exclusions, expected = P.build_supplement_items(injected, heldout, render_cfg, tokenizer=render_tok, limit=args.limit,
+                                                               passes=tuple(args.supplement_passes), n_donors=args.n_donors)
+        cov = checked_coverage(items, expected, exclusions)
+        supplement = {"version": P.SUPPLEMENT_VERSION, "passes": list(args.supplement_passes), "n_donors": args.n_donors,
+                      "build_token_matched": token_matched, "rendered_with_training_tokenizer": render_tok is not None,
+                      "manifest_check": supplement_manifest_check(args, items, token_matched and not real_tokenizer)}
+
     bos = tokenizer.get_bos_token_id()
     seqs, bmeta = [], []
     for it in items:
@@ -280,14 +327,18 @@ def main(argv=None):
     per_tok = score_dry(seqs) if args.dry_run else score_batched(seqs, model, device, args.batch_size)
 
     # outputs are scoped to the checkpoint's model tag (recheck finding 6): replicates never collide
-    out_csv = args.out_csv or str(T.eval_output_dir(args.exp_dir, args.model_tag) / f"beliefs_arm{args.arm}.csv")
+    out_csv = args.out_csv or str(T.eval_output_dir(args.exp_dir, args.model_tag)
+                                  / f"{SUPPLEMENT_PREFIX if args.supplement else ''}beliefs_arm{args.arm}.csv")
+    if args.supplement and not os.path.basename(out_csv).startswith(SUPPLEMENT_PREFIX):
+        raise SystemExit(f"--supplement outputs must be named {SUPPLEMENT_PREFIX}beliefs_arm<ARM>.csv (got {out_csv}): the "
+                         "analysis reads beliefs_arm<ARM>.csv as the main evaluation")
     os.makedirs(os.path.dirname(out_csv) or ".", exist_ok=True)
     if os.path.exists(out_csv):
         raise SystemExit(f"{out_csv} exists; evaluation outputs are versioned -- pass --out-csv to a new path")
     tmp_csv = out_csv + ".tmp"
     identities = []   # canonical identity of every scored contrast (texts, spans, boundary); summarized in the meta
     with open(tmp_csv, "w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=CSV_COLS)
+        w = csv.DictWriter(fh, fieldnames=CSV_COLS + (SUPPLEMENT_EXTRA_COLS if args.supplement else []))
         w.writeheader()
         for k, it in enumerate(items):
             sv, sc = seqs[2 * k], seqs[2 * k + 1]
@@ -317,6 +368,7 @@ def main(argv=None):
                 "context": it.context, "cand_value": it.cand_value, "cand_competing": it.cand_competing,
                 "scoring_policy": P.SCORING_POLICY, "legacy_malformed": it.legacy_malformed,
                 "historical_rendering": it.historical_rendering, "item_sha256": ident,
+                **({"donor_fact_id": it.donor_fact_id} if args.supplement else {}),
             })
     os.replace(tmp_csv, out_csv)
     print(f"wrote {len(items)} rows -> {out_csv}")
@@ -334,10 +386,12 @@ def main(argv=None):
         "scoring_policy": P.SCORING_POLICY,
         # candidate-construction semantics version (recheck finding 3); an unversioned constructor
         # (e.g. the 031c4e5 module swapped in by a reproduction) is labelled as such, never omitted
-        "probe_construction": getattr(P, "PROBE_CONSTRUCTION_VERSION", "structured_v2.0 (unversioned constructor)"),
+        "probe_construction": (P.SUPPLEMENT_VERSION if args.supplement
+                               else getattr(P, "PROBE_CONSTRUCTION_VERSION", "structured_v2.0 (unversioned constructor)")),
+        **({"kind": "supplement", "supplement": supplement} if args.supplement else {}),
         "items_sha256": sha256_text("\n".join(sorted(identities))),   # identity of the whole scored item set
         "model_tag": args.model_tag, "run": run_identity,
-        "metrics": {"logp_value": "answer_plus_suffix for cloze passes, full_sentence for heldout_paraphrase",
+        "metrics": {"logp_value": "answer_plus_suffix for cloze and wrapper passes, full_sentence for heldout_paraphrase",
                     "logp_value_answer": "answer-only sub-sum", "logp_value_suffix": "logp_value - logp_value_answer"},
         "mode": "dry_run_mock_scores" if args.dry_run else "model_inference",
         "tokenizer": tok_fp, "checkpoint": ckpt_info, "code": code_revision(),
@@ -356,6 +410,47 @@ def main(argv=None):
     if not args.dry_run and not args.no_tracking and T.tracking_enabled():
         track_eval(args, out_csv, items, per_tok, seqs, meta_ckpt, meta_path, run_identity)
     return out_csv
+
+
+def supplement_manifest_check(args, items, cannot_reproduce: bool) -> dict:
+    """wrapper_conditional_E must be the text arm E was trained on: every item is compared with the
+    manifest's occurrence-0 arm-E insert. -> the record written to the meta json. The run stops on a
+    mismatch, and when no manifest is found unless --skip-manifest-check; a dry run with the
+    character tokenizer on a token-matched build cannot reproduce the frames and skips the check
+    (plumbing only, recorded)."""
+    if "wrapper_conditional_E" not in args.supplement_passes:
+        return {"checked": False, "reason": "wrapper_conditional_E not requested"}
+    if cannot_reproduce:
+        print("NOTE  dry run without the training tokenizer on a token-matched build: the arm-E frames are NOT the "
+              "training text (plumbing test only; use --tokenizer-dir)")
+        return {"checked": False, "reason": "dry run with the character tokenizer on a token-matched build"}
+    path = args.manifest
+    if path is None:
+        for name in ("manifest.csv", "manifest.csv.gz"):
+            if os.path.exists(os.path.join(args.exp_dir, name)):
+                path = os.path.join(args.exp_dir, name)
+                break
+    if path is None or not os.path.exists(path):
+        if args.skip_manifest_check:
+            print("WARNING  wrapper_conditional_E frames are NOT verified against a manifest (--skip-manifest-check)")
+            return {"checked": False, "reason": "--skip-manifest-check (no manifest)"}
+        raise SystemExit(f"--supplement: no build manifest found ({path or os.path.join(args.exp_dir, 'manifest.csv[.gz]')}); the arm-E "
+                         "frames must be verified against the text the arm was trained on. Pass --manifest, or "
+                         "--skip-manifest-check to score unverified frames (recorded in the meta json)")
+    v = P.verify_wrapper_items(items, path, arm="E")
+    if v["mismatches"] or v["missing"]:
+        for fid, want, got in v["mismatches"][:3]:
+            print(f"  MISMATCH {fid}:\n    manifest: {want!r}\n    rendered: {got!r}")
+        msg = (f"--supplement: {len(v['mismatches'])} of {v['checked']} arm-E frames differ from the manifest ({path}) and "
+               f"{len(v['missing'])} facts have no arm-E occurrence 0 there: the probe would not be the training text "
+               "(wrong tokenizer directory? another build?)")
+        if not args.skip_manifest_check:
+            raise SystemExit(msg)
+        print("WARNING  " + msg + " -- scoring anyway (--skip-manifest-check)")
+    else:
+        print(f"arm-E frames verified against {path}: {v['checked']} of {v['checked']} equal the trained occurrence-0 inserts")
+    return {"checked": True, "manifest": os.path.abspath(path), "n_checked": v["checked"], "n_mismatch": len(v["mismatches"]),
+            "n_missing": len(v["missing"]), "skip_requested": bool(args.skip_manifest_check)}
 
 
 def checkpoint_provenance(meta_ckpt: dict, model_tag=None) -> dict:
@@ -441,6 +536,9 @@ def track_eval(args, out_csv, items, per_tok, seqs, meta_ckpt, meta_path, run_id
     depth = args.model_tag or (f"d{meta_ckpt['model_config']['n_layer']}" if meta_ckpt.get("model_config") else None) \
         or info.get("model_tag") or info.get("depth")
     rows, flat = summarize(items, per_tok, seqs)
+    supplement = bool(getattr(args, "supplement", False))
+    if supplement:      # never overwrite the main evaluation's belief/* summary keys
+        flat = {k.replace("belief/", "belief_supp/", 1): v for k, v in flat.items()}
     summary_json = os.path.splitext(out_csv)[0] + "_summary.json"
     with open(summary_json, "w") as fh:
         json.dump({"arm": args.arm, "step": meta_ckpt.get("step"), "wandb_run_id": run_id, "rows": rows}, fh, indent=2)
@@ -452,9 +550,11 @@ def track_eval(args, out_csv, items, per_tok, seqs, meta_ckpt, meta_path, run_id
         model_sha = (meta_eval.get("checkpoint") or {}).get("model_sha256")
         # never move the run's checkpoint tag: the evaluation goes to a branch/tag derived from
         # the verified checkpoint commit (review 2026-10-14 finding 1)
+        # the supplement goes to the same evaluation branch (next to the checkpoint it scored) under its own tag
         up = T.hf_upload_eval(repo, files, run_id, model_sha, step=str(meta_ckpt.get("step")),
                               allow_unverified=getattr(args, "allow_unverified_upload", False),
-                              commit_message=f"eval arm {args.arm} step {meta_ckpt.get('step')} (wandb {run_id})")
+                              tag=(T.eval_tag(run_id) + "-supp") if supplement else None,
+                              commit_message=f"{'supplementary ' if supplement else ''}eval arm {args.arm} step {meta_ckpt.get('step')} (wandb {run_id})")
         hf_url = up["url"]
         with open(os.path.splitext(out_csv)[0] + ".upload.json", "w") as fh:
             json.dump(up, fh, indent=2, default=str)
@@ -465,11 +565,14 @@ def track_eval(args, out_csv, items, per_tok, seqs, meta_ckpt, meta_path, run_id
     if T.wandb_enabled() and run_id:
         import wandb
         run = T.wandb_resume(run_id, job_type="train")
-        run.summary.update({**flat, "eval/n_rows": len(items), "eval/step": meta_ckpt.get("step")})
-        run.log({"belief_summary": wandb.Table(columns=list(rows[0].keys()), data=[list(r.values()) for r in rows])}
-                if rows else {})
+        if supplement:
+            run.summary.update({**flat, "eval_supp/n_rows": len(items), "eval_supp/step": meta_ckpt.get("step")})
+        else:
+            run.summary.update({**flat, "eval/n_rows": len(items), "eval/step": meta_ckpt.get("step")})
+        run.log({("belief_supp_summary" if supplement else "belief_summary"):
+                 wandb.Table(columns=list(rows[0].keys()), data=[list(r.values()) for r in rows])} if rows else {})
         if hf_url:
-            run.config.update({"hf_eval": f"{hf_url}/tree/main/eval"}, allow_val_change=True)
+            run.config.update({("hf_eval_supp" if supplement else "hf_eval"): f"{hf_url}/tree/main/eval"}, allow_val_change=True)
         run.finish()
         print(f"eval metrics -> wandb run {run_id} ({T.wandb_run_url(run_id)})")
     elif T.wandb_enabled():

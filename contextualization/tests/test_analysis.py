@@ -849,10 +849,16 @@ def test_v2_probe_records_and_headline(tmp_path):
     assert co["all_injected"].n == co["exclusive_value"].n == co["rival_untrained"].n == 4
     assert co["heldout_rivals"].n == 4 and co["heldout_groups_both"].n == 4 and co["paraphrase_wellformed"].n == 4
     assert co["paraphrase_historical_reference"].n == 4
-    # finding 8: synthetic v2 groups orient to candidate_slot "a"; heldout_claims = 2 oriented groups + 4 rivals
+    # finding 8: synthetic v2 groups orient to candidate_slot "a". Review 2026-11-11 finding 6: the 4 v2 rivals are exact
+    # MIRRORS of the 4 injected probes (same prompts, candidates swapped), so heldout_claims no longer contains them (it
+    # was 2 oriented groups + 4 rivals = 6): a never-trained baseline cannot hold sign-flipped copies of injected facts
     assert co["heldout_groups"].n == 2 and co["heldout_groups"].details["orientation"]["by_rule"] == {"slot_a": 2}
     assert all(probes.by_id()[f]["candidate_slot"] == "a" for f in co["heldout_groups"].fact_ids)
-    assert co["heldout_claims"].n == 6
+    assert co["heldout_rivals"].n == 4 and co["heldout_rivals"].details["n_mirrors"] == 4 and co["heldout_rivals"].details["all_mirrors"]
+    assert set(co["heldout_rivals"].details["mirror_of"].values()) == set(co["all_injected"].fact_ids)
+    assert co["heldout_claims"].n == 2 and set(co["heldout_claims"].fact_ids) == set(co["heldout_groups"].fact_ids)
+    assert co["heldout_claims"].details["n_mirrors_excluded"] == 4
+    assert sum(1 for e in co["heldout_claims"].exclusions if e["reason"].startswith("mirror_of_injected")) == 4
     assert co["heldout_groups"].details["role_mismatch_fact_ids"] == []
     assert all(probes.by_id()[f]["role"] == "unasserted_rival" for f in co["heldout_rivals"].fact_ids)
     (tmp_path / "build_summary.json").write_text(json.dumps({"protocol": PROTOCOL_V2, "config": {"seed": 3, "render_policy": TP.RenderPolicy().to_dict()}}))
@@ -1573,3 +1579,457 @@ def test_training_objective_is_one_per_experiment(tmp_path):
     run_cli(edir, pdir, *extra, compat=None)
     crows = {r["arm"]: r for r in read_csv(edir / "analysis_v2" / "tables" / "compatibility.csv")}
     assert crows["C"]["loss_normalization"] == "unrecorded"
+
+
+# ======================================================================================
+# regression tests for the 2026-11-11 review of the funded runs (two complete seeds + a partial third):
+# findings 1 (no cross-seed inference), 2 (no noise floor), 3 (incomplete replicate pooled silently), 4 (verbatim join on
+# template 0 only), 5 (--manifest disabled the memorization section), 6 (mirror rivals reported as a baseline), 8 (no
+# label-level row), 9 (no by-relation table), 10 (exposure index bound by dataset id only)
+
+def fact_rows(arm, records, value_of, templates=(0, 1), **kw):
+    """cloze rows whose belief is value_of(record, template_idx): per-fact structure for the cross-replicate tests."""
+    rows = []
+    for r in records:
+        rows += cloze_rows(arm, [r], list(templates), belief=lambda ti, r=r: value_of(r, ti), **kw)
+    return rows
+
+
+def _row(rows, **want):
+    hits = [r for r in rows if all(r.get(k) == v for k, v in want.items())]
+    assert len(hits) == 1, (want, len(hits))
+    return hits[0]
+
+
+def test_review1111_replicate_interval_and_crossed_summary():
+    """Finding 1: the cross-replicate statistics on hand-checkable inputs."""
+    ri = ST.replicate_interval({"a": 1.0, "b": 3.0, "skip": None})
+    assert ri["n_replicates"] == 2 and ri["mean"] == 2.0 and ri["sd"] == pytest.approx(math.sqrt(2.0)) and ri["se"] == pytest.approx(1.0)
+    assert ri["t_lo"] == pytest.approx(2.0 - 12.7062, abs=1e-3) and ri["t_hi"] == pytest.approx(2.0 + 12.7062, abs=1e-3)
+    three = ST.replicate_interval({"a": 0.0, "b": 1.0, "c": 2.0})
+    assert three["t_hi"] - three["mean"] == pytest.approx(4.3027 * 1.0 / math.sqrt(3.0), abs=1e-3)
+    assert ST.replicate_interval({"a": 5.0})["t_lo"] is None
+    # an exactly additive layout y_us = a_u + b_s: no residual, the components are the sample variances
+    a, b = np.array([0.0, 1.0, 4.0, 7.0, 8.0]), np.array([10.0, 13.0, 14.0])
+    c = ST.crossed_summary(a[:, None] + b[None, :])
+    assert c["n_units"] == 5 and c["n_replicates"] == 3 and c["mean"] == pytest.approx(a.mean() + b.mean())
+    assert c["var_residual"] == pytest.approx(0.0, abs=1e-18) and c["var_unit"] == pytest.approx(a.var(ddof=1))
+    assert c["var_replicate"] == pytest.approx(b.var(ddof=1))
+    assert c["se_crossed"] == pytest.approx(math.sqrt(a.var(ddof=1) / 5 + b.var(ddof=1) / 3))
+    assert c["se_units_only"] == pytest.approx(math.sqrt(a.var(ddof=1) / 5)) and c["F_rep"] is None
+    assert c["ci_lo"] < c["mean"] < c["ci_hi"] and c["replicate_means"] == pytest.approx(list(a.mean() + b))
+    # replicate means that agree better than the residual predicts never shrink the SE below the units-only SE
+    y = np.array([[1.0, -1.0], [-1.0, 1.0], [3.0, 5.0], [5.0, 3.0]])          # equal column means, noisy cells
+    c = ST.crossed_summary(y)
+    assert c["var_replicate"] == 0.0 and c["se_crossed"] == pytest.approx(c["se_units_only"]) and c["p_rep"] == pytest.approx(1.0)
+    assert ST.crossed_summary(np.zeros((1, 3)))["se_crossed"] is None and ST.crossed_summary([])["mean"] is None
+    n = ST.same_arm_noise([1.0, -1.0, 2.0, 3.0], [1.5, 0.5, -2.0, 3.0])
+    assert n == {"n": 4, "mean_diff": pytest.approx(0.5), "mean_abs_diff": pytest.approx(1.5), "sd_diff": pytest.approx(np.std([-0.5, -1.5, 4.0, 0.0], ddof=1)),
+                 "n_pref_flips": 2, "corr": pytest.approx(np.corrcoef([1.0, -1.0, 2.0, 3.0], [1.5, 0.5, -2.0, 3.0])[0, 1])}
+
+
+def test_review1111_incomplete_replicate_refused_then_excluded(tmp_path):
+    """Finding 3: seed_9 holds only arm C (a queue still running). The analysis accepted it silently and averaged arm C
+    over three seeds and arm R over two. Now it stops by default; with --allow-incomplete-replicates the partial
+    replicate is analysed on its own, never enters a cross-replicate summary or figure, and still feeds the noise floor."""
+    pdir, edir, inj, held = build_v2_fixture(tmp_path / "f")
+    reps = tmp_path / "f" / "reps"
+    c_level = {7: 0.0, 8: 0.0, 9: 30.0}
+    for seed, arms, d in ((7, "CR", 2.0), (8, "CR", 4.0), (9, "C", 0.0)):
+        (reps / f"seed_{seed}").mkdir(parents=True)
+        for a in arms:
+            rows = cloze_rows(a, inj, [0, 1], belief=lambda ti, a=a, d=d, s=seed: c_level[s] + (d if a == "R" else 0.0))
+            write_v2_csv(reps / f"seed_{seed}", a, rows, {"init_seed": seed}, pdir)
+    extra = ("--cohort", "all_injected", "--bootstrap", "0", "--plot")
+    out = run_cli(reps, pdir, *extra, compat=None, expect_fail=True)
+    assert "INCOMPLETE REPLICATES" in out and "seed_9 lacks arm(s) R" in out and "--allow-incomplete-replicates" in out
+    out = run_cli(reps, pdir, *extra, "--allow-incomplete-replicates", compat=None)
+    assert "`seed_9` lacks arm(s) R" in out and "Replicates found: 3 (seed_7, seed_8, seed_9), complete: 2 (seed_7, seed_8)" in out
+    tables = reps / "analysis_v2" / "tables"
+    dose = [r for r in read_csv(tables / "replicates__dose_response.csv") if r["pass"] == "cloze_neutral" and r["metric"] == "answer_plus_suffix"]
+    assert dose and all(r["n_replicates"] == "2" for r in dose)
+    assert all(float(r["mean_of_means"]) == 0.0 for r in dose if r["arm"] == "C")          # 10.0 if seed_9 were averaged in
+    assert all(float(r["mean_of_means"]) == 3.0 for r in dose if r["arm"] == "R")
+    paired = _row(read_csv(tables / "replicates__paired.csv"), contrast="R-C", **{"pass": "cloze_neutral"}, subset="",
+                  metric="answer_plus_suffix", tier="all", label="all", dose="all")
+    assert paired["n_replicates"] == "2" and paired["per_replicate"] == "seed_7=2.000; seed_8=4.000"
+    noise = read_csv(tables / "replicates__same_arm_noise.csv")
+    c9 = _row(noise, comparison="same_arm_across_replicates", a="C@seed_9", b="C@seed_7", **{"pass": "cloze_neutral"}, metric="answer_plus_suffix")
+    assert float(c9["mean_diff"]) == 30.0 and c9["n"] == str(len(inj))                     # the partial replicate feeds the noise floor
+    # the per-replicate tables of the partial replicate exist (arm C on its own), the paired ones do not
+    per_arm = read_csv(tables / "dose_response__all_injected__cloze_neutral__answer_plus_suffix.csv")
+    assert {r["arm"] for r in per_arm if r["replicate"] == "seed_9"} == {"C"}
+    assert {r["replicate"] for r in read_csv(tables / "paired__R-C__all_injected__cloze_neutral__answer_plus_suffix.csv")} == {"seed_7", "seed_8"}
+    # one complete replicate + one partial: no cross-replicate contrast, the noise floor only
+    import shutil
+    shutil.rmtree(reps / "seed_8")
+    _clear_outputs(reps)
+    out = run_cli(reps, pdir, *extra, "--allow-incomplete-replicates", compat=None)
+    assert "complete: 1 (seed_7)" in out and "Cross-replicate contrasts are UNMEASURED" in out
+    assert not (tables / "replicates__paired.csv").exists() and (tables / "replicates__same_arm_noise.csv").exists()
+
+
+def test_review1111_cross_replicate_tables_match_direct_computation(tmp_path):
+    """Findings 1 and 2: three replicates whose R-C differences are u_f + b_s + e_fs. The crossed table reproduces
+    ctx.stats.crossed_summary on the facts x replicates matrix, the replicate interval uses S-1 df, and the noise-floor
+    rows equal the direct per-fact comparison (arm C is identical across seeds: zero movement)."""
+    pdir, edir, inj, held = build_v2_fixture(tmp_path / "f", n_groups=40)
+    reps = tmp_path / "f" / "reps"
+    seeds, shift = (7, 8, 9), {7: 0.0, 8: 1.5, 9: 4.0}
+
+    def r_value(rec, seed):
+        g = rng_for(11, "xrep", rec["fact_id"])
+        return float(g.normal(0, 2.0)) + shift[seed] + float(rng_for(11, "xrep", rec["fact_id"], seed).normal(0, 1.0))
+
+    for seed in seeds:
+        (reps / f"seed_{seed}").mkdir(parents=True)
+        write_v2_csv(reps / f"seed_{seed}", "C", fact_rows("C", inj, lambda r, ti: 0.0), {"init_seed": seed}, pdir)
+        write_v2_csv(reps / f"seed_{seed}", "R", fact_rows("R", inj, lambda r, ti, s=seed: r_value(r, s)), {"init_seed": seed}, pdir)
+    run_cli(reps, pdir, "--cohort", "all_injected", "--bootstrap", "50", compat=None)
+    tables = reps / "analysis_v2" / "tables"
+    D = np.array([[r_value(r, s) for s in seeds] for r in inj])
+    want = ST.crossed_summary(D)
+    row = _row(read_csv(tables / "replicates__crossed.csv"), contrast="R-C", cohort="all_injected", **{"pass": "cloze_neutral"},
+               subset="", metric="answer_plus_suffix", dose="all")
+    assert row["n_replicates"] == "3" and row["n"] == str(len(inj)) and row["n_groups"] == str(len(inj))
+    for col, key in (("mean_diff", "mean"), ("var_unit", "var_unit"), ("var_replicate", "var_replicate"), ("var_residual", "var_residual"),
+                     ("se_crossed", "se_crossed"), ("se_units_only", "se_units_only"), ("df_crossed", "df_crossed"),
+                     ("crossed_ci95_lo", "ci_lo"), ("crossed_ci95_hi", "ci_hi"), ("F_rep", "F_rep"), ("p_rep", "p_rep")):
+        assert float(row[col]) == pytest.approx(want[key], rel=1e-9, abs=1e-12), col
+    assert float(row["p_rep"]) < 1e-6 and float(row["se_crossed"]) > 2 * float(row["se_units_only"])     # run-level variance dominates
+    assert float(row["facts_ci95_lo"]) < float(row["mean_diff"]) < float(row["facts_ci95_hi"])
+    ri = ST.replicate_interval({f"seed_{s}": float(D[:, j].mean()) for j, s in enumerate(seeds)})
+    paired = _row(read_csv(tables / "replicates__paired.csv"), contrast="R-C", cohort="all_injected", **{"pass": "cloze_neutral"}, subset="",
+                  metric="answer_plus_suffix", tier="all", label="all", dose="all")
+    assert float(paired["t95_lo"]) == pytest.approx(ri["t_lo"]) and float(paired["t95_hi"]) == pytest.approx(ri["t_hi"])
+    assert float(paired["se_across_replicates"]) == pytest.approx(ri["se"]) and float(paired["mean_of_mean_diff"]) == pytest.approx(ri["mean"])
+    assert float(row["replicate_t95_lo"]) == pytest.approx(ri["t_lo"])
+    # per-dose cells of the crossed table are in the CSV when the cohort has several doses (here one dose: none)
+    assert {r["dose"] for r in read_csv(tables / "replicates__crossed.csv") if r["contrast"] == "R-C" and r["subset"] == ""} == {"all"}
+    noise = read_csv(tables / "replicates__same_arm_noise.csv")
+    want_n = ST.same_arm_noise(D[:, 1], D[:, 0])
+    r87 = _row(noise, comparison="same_arm_across_replicates", a="R@seed_8", b="R@seed_7", **{"pass": "cloze_neutral"}, metric="answer_plus_suffix")
+    assert float(r87["mean_abs_diff"]) == pytest.approx(want_n["mean_abs_diff"]) and r87["n_pref_flips"] == str(want_n["n_pref_flips"])
+    assert float(r87["corr"]) == pytest.approx(want_n["corr"])
+    c87 = _row(noise, comparison="same_arm_across_replicates", a="C@seed_8", b="C@seed_7", **{"pass": "cloze_neutral"}, metric="answer_plus_suffix")
+    assert float(c87["mean_abs_diff"]) == 0.0 and c87["n_pref_flips"] == "0"
+    cross = _row(noise, comparison="different_arms_same_replicate", a="R@seed_9", b="C@seed_9", **{"pass": "cloze_neutral"}, metric="answer_plus_suffix")
+    assert float(cross["mean_diff"]) == pytest.approx(float(D[:, 2].mean()))
+    md = (reps / "analysis_v2" / "analysis.md").read_text()
+    assert "### 6a. Per-replicate values" in md and "### 6b. Facts x replicates" in md and "### 6c. Noise floor" in md
+
+
+def _exposure_index(d: Path, ids, data_seed, records, summary, arms="CR", created="t0", lost=()):
+    """An exposure index directory: PREFLIGHT_OK.json (prepacked dataset ids, data seed) + <arm>/occurrence_exposure.csv.
+    ``lost`` = arms whose occurrences are all recorded as omitted (never scored)."""
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "PREFLIGHT_OK.json").write_text(json.dumps({"prepack_dataset_id": ids, "data_seed": data_seed, "created_at": created,
+                                                     "build_summary_sha256": sha256_file(summary), "B": 8, "T": 96}))
+    for arm in arms:
+        (d / arm).mkdir(exist_ok=True)
+        with open(d / arm / "occurrence_exposure.csv", "w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=["fact_id", "group_id", "arm", "occurrence", "status", "epoch", "micro_batch", "step", "row_index"])
+            w.writeheader()
+            for r in records:
+                for occ in range(int(r["assigned_frequency"])):
+                    w.writerow({"fact_id": r["fact_id"], "group_id": r["group_id"], "arm": arm, "occurrence": occ,
+                                "status": "omitted" if arm in lost else "complete", "epoch": 0, "micro_batch": 1, "step": 5, "row_index": 3})
+    return sha256_file(d / "PREFLIGHT_OK.json")
+
+
+def test_review1111_exposure_index_is_bound_per_data_seed(tmp_path):
+    """Finding 10: every seed has its own row schedule, but the exposure index was bound by prepacked dataset id only --
+    which is the same for every seed -- so the last seed's index was accepted for all replicates. Now a replicate is bound
+    to the preflight its checkpoints recorded (or to dataset id AND data seed), --exposure-dir may hold one index per seed,
+    and each replicate's memorization classification reads its own index."""
+    pdir, edir, inj, held = build_v2_fixture(tmp_path / "f", n_groups=60)
+    root = tmp_path / "f"
+    summary = root / "build_summary.json"
+    cfg = CH.protocol_cfg_from_summary(json.loads(summary.read_text()), CH.load_probes(str(pdir)))
+    nominal = CH.classify_verbatim_trained(CH.load_probes(str(pdir)).injected, cfg)["nominal"]
+    n_verbatim = sum(nominal.values())
+    assert 0 < n_verbatim < len(inj)                                    # the fixture has both kinds of facts
+    ids = {"C": "c" * 64, "R": "d" * 64}                                # the SAME prepacked rows for every data seed
+    by_seed = root / "exposure_by_seed"
+    sha7 = _exposure_index(by_seed / "seed_7", ids, 7, inj, summary)
+    sha8 = _exposure_index(by_seed / "seed_8", ids, 8, inj, summary, lost="R")        # seed 8: arm R never scored a claim
+    assert sha7 != sha8
+    reps = root / "reps"
+    for seed, sha in ((7, sha7), (8, sha8)):
+        (reps / f"seed_{seed}").mkdir(parents=True)
+        for a in "CR":
+            write_v2_csv(reps / f"seed_{seed}", a, cloze_rows(a, inj, [0, 1]),
+                         {"init_seed": seed, "data_seed": seed, "bindings": {"prepack_dataset_id": ids[a], "preflight_sha256": sha}}, pdir)
+    extra = ("--cohort", "all_injected", "--bootstrap", "0")
+    # the old command line: ONE index (the last seed's) for every replicate -> refused for the other seed
+    out = run_cli(reps, pdir, *extra, "--exposure-dir", str(by_seed / "seed_8"), compat=None, expect_fail=True)
+    assert "seed_7/C: the exposure index under" in out and "was measured for data seed 8 but the checkpoint was trained with data seed 7" in out
+    assert "seed_8/C" not in out.split("EVALUATION METADATA INCOMPATIBLE")[1]
+    # one index per seed: every replicate bound to its own preflight, and classified from its own index
+    _clear_outputs(reps)
+    out = run_cli(reps, pdir, *extra, "--exposure-dir", str(by_seed), compat=None)
+    compat = json.loads((reps / "analysis_v2" / "compatibility.json").read_text())
+    for seed in (7, 8):
+        s = compat["replicates"][f"seed_{seed}"]["R"]
+        assert s["exposure_binding"] == "exact" and s["exposure_dir"] == str(by_seed / f"seed_{seed}") and s["inputs_bound"] is True
+    assert len(compat["inputs"]["exposure_candidates"]) == 2 and not compat["warnings"]
+    assert "exposure (data seed 7)" in out and "exposure (data seed 8)" in out
+    mem = read_csv(reps / "analysis_v2" / "tables" / "memorization__all_injected.csv")
+    n = {(r["replicate"], r["arm"], r["subgroup"]): int(r["n"]) for r in mem}
+    assert n[("seed_7", "R", "verbatim_trained")] == n_verbatim                              # its own index: every occurrence complete
+    assert ("seed_8", "R", "verbatim_trained") not in n and n[("seed_8", "R", "not_verbatim_trained")] == len(inj)   # its own index: none scored
+    assert {r["classification_source"] for r in mem if r["arm"] == "C"} == {"nominal"}       # the control arm renders no claim
+    # a regenerated preflight of the same run (another file, same dataset and data seed) is accepted with a warning
+    sha8b = _exposure_index(by_seed / "seed_8", ids, 8, inj, summary, lost="R", created="t1")
+    assert sha8b != sha8
+    _clear_outputs(reps)
+    run_cli(reps, pdir, *extra, "--exposure-dir", str(by_seed), compat=None)
+    compat = json.loads((reps / "analysis_v2" / "compatibility.json").read_text())
+    assert compat["replicates"]["seed_8"]["R"]["exposure_binding"] == "equivalent"
+    assert any("accepted as equivalent" in w and "seed_8/R" in w for w in compat["warnings"])
+    # an index for a seed nobody trained with, next to none for seed 8: seed 8 has no index of its own
+    import shutil
+    shutil.rmtree(by_seed / "seed_8")
+    _exposure_index(by_seed / "seed_5", ids, 5, inj, summary)
+    _clear_outputs(reps)
+    out = run_cli(reps, pdir, *extra, "--exposure-dir", str(by_seed), compat=None, expect_fail=True)
+    assert "seed_8/R" in out and "but the checkpoint was trained with data seed 8" in out
+    # unit level: the binding rule
+    cands = AB.exposure_candidates(str(by_seed))
+    assert sorted(c["data_seed"] for c in cands) == [5, 7] and AB.exposure_candidates(str(by_seed / "seed_7"))[0]["preflight_sha256"] == sha7
+    b = AB.bind_exposure(cands, "R", {"prepack_dataset_id": ids["R"], "preflight_sha256": sha7}, {"data_seed": 7})
+    assert b["status"] == "exact" and b["candidate"]["data_seed"] == 7
+    assert AB.bind_exposure(cands, "R", {"prepack_dataset_id": "e" * 64}, {"data_seed": 7})["status"] == "mismatch"
+    assert AB.bind_exposure(cands, "R", {"prepack_dataset_id": ids["R"]}, {"data_seed": 7})["status"] == "dataset_id"   # legacy bindings
+    assert AB.bind_exposure(cands, "R", {}, {"data_seed": 7})["status"] == "unbound" and AB.bind_exposure([], "R", {}, {})["status"] == "none"
+
+
+def test_review1111_manifest_control_rows_and_item_level_verbatim(tmp_path):
+    """Findings 5 and 4. The real manifest carries arm C rows with paraphrase_index -1 (the control renders no claim):
+    the memorization join raised on them, so --manifest switched section 4b off. And the join looked at cloze template 0
+    only although template 1 is a trained sentence for some relations. Control rows are now skipped and every cloze item
+    is classified; the contrast is reported separately on verbatim-trained and other items."""
+    pdir, edir, inj, held = build_v2_fixture(tmp_path / "f", n_groups=60)
+    root = tmp_path / "f"
+    rec = inj[0]
+    # unit level: control rows are skipped, a negative index in an intervention arm is still an error
+    forms = rec["surface_forms"]
+    ok = next(i for i in range(len(forms)) if i != rec["heldout_paraphrase_index"])
+    rows = [{"arm": "C", "occurrence": 0, "paraphrase_index": -1}, {"arm": "R", "occurrence": 0, "paraphrase_index": ok},
+            {"arm": "X", "occurrence": 0, "paraphrase_index": ok}]
+    assert CH.realized_training_forms(rec, {"protocol": PROTOCOL_V2}, None, rows) == [forms[ok]]
+    with pytest.raises(ProtocolError, match="outside surface_forms"):
+        CH.realized_training_forms(rec, {"protocol": PROTOCOL_V2}, None, [{"arm": "R", "occurrence": 0, "paraphrase_index": -1}])
+    # the manifest of the test build: every fact's single... occurrences render the form that equals one of its cloze
+    # sentences when it has one (so that item is verbatim-trained), else any trained form
+    manifest = root / "manifest.csv"
+    want = {}                                               # fact_id -> {template_idx: bool}
+    with manifest.open("w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=["arm", "fact_id", "occurrence", "paraphrase_index"])
+        w.writeheader()
+        for r in inj:
+            sents = CH.cloze_sentences(r)
+            allowed = [i for i in range(len(r["surface_forms"])) if i != r["heldout_paraphrase_index"]]
+            hit = next(((ti, i) for ti in sorted(sents, reverse=True) for i in allowed if r["surface_forms"][i] == sents[ti]), None)
+            pi = hit[1] if hit else allowed[0]
+            want[r["fact_id"]] = {ti: (r["surface_forms"][pi] == s) for ti, s in sents.items()}
+            for occ in range(int(r["assigned_frequency"])):
+                w.writerow({"arm": "C", "fact_id": r["fact_id"], "occurrence": occ, "paraphrase_index": -1})
+                for arm in "RX":
+                    w.writerow({"arm": arm, "fact_id": r["fact_id"], "occurrence": occ, "paraphrase_index": pi})
+    man = CH.load_manifest(str(manifest), fact_ids={r["fact_id"] for r in inj})
+    got = CH.classify_verbatim_items(CH.load_probes(str(pdir)).injected, {"protocol": PROTOCOL_V2}, None, man)["nominal"]
+    assert got == want
+    n_items = sum(len(v) for v in want.values())
+    n_verb = sum(sum(v.values()) for v in want.values())
+    n_t1 = sum(1 for v in want.values() if v.get(1))
+    assert 0 < n_verb < n_items and n_t1 > 0, "the fixture needs verbatim items, including template-1 ones"
+    assert any(v.get(1) and not v.get(0) for v in want.values())            # invisible to the template-0 classification
+    # R - C is 10 on verbatim-trained items and 2 on the others
+    for a in "CR":
+        rows = fact_rows(a, inj, lambda r, ti, a=a: 0.0 if a == "C" else (10.0 if want[r["fact_id"]][ti] else 2.0))
+        write_v2_csv(edir, a, rows, {}, pdir)
+    out = run_cli(edir, pdir, "--cohort", "all_injected", "--bootstrap", "0", "--manifest", str(manifest), compat=None)
+    assert "NOT COMPUTABLE" not in out and f"{n_verb} of {n_items} neutral-cloze items of the cohort are verbatim-trained" in out
+    tables = edir / "analysis_v2" / "tables"
+    assert (tables / "memorization__all_injected.csv").exists()            # section 4b computed WITH the manifest
+    items = read_csv(tables / "verbatim_items__all_injected__cloze_neutral__answer_plus_suffix.csv")
+    v = _row(items, subset="verbatim_trained_items", contrast="R-C", dose="all")
+    nv = _row(items, subset="not_verbatim_items", contrast="R-C", dose="all")
+    assert float(v["mean_diff"]) == pytest.approx(10.0) and float(nv["mean_diff"]) == pytest.approx(2.0)
+    assert int(v["n_items"]) == n_verb and int(nv["n_items"]) == n_items - n_verb
+    assert int(v["n"]) == sum(1 for x in want.values() if any(x.values())) and int(nv["n"]) == sum(1 for x in want.values() if not all(x.values()))
+    pooled = _row(read_csv(tables / "paired__R-C__all_injected__cloze_neutral__answer_plus_suffix.csv"), dose="all")
+    assert 2.0 < float(pooled["mean_diff"]) < 10.0                          # the headline mixes the two
+    co = json.loads((edir / "analysis_v2" / "cohorts" / "all_injected.json").read_text())
+    assert co["details"]["verbatim_trained"]["items"] == {"verbatim_trained_items": n_verb, "items": n_items}
+
+
+def test_review1111_label_rows_relation_rows_and_mirror_tables(tmp_path):
+    """Findings 8, 9 and 6: one descriptive row per label pooled over doses (dose == "pooled"; `dose == all` stays the single
+    all-labels row), a by-relation table for the headline cohort, and the v2 rival cohort flagged as mirrors instead of
+    being printed as a never-trained baseline."""
+    pdir, edir, inj, held = build_v2_fixture(tmp_path / "f", n_groups=80, doses=(1, 4))
+    rels = sorted({r["relation"] for r in inj})
+    labels = sorted({r["truth_value"] for r in inj})
+    assert len(rels) > 2 and len(labels) > 1
+    level = {rel: float(i + 1) for i, rel in enumerate(rels)}
+    for a in "CR":
+        rows = fact_rows(a, inj, lambda r, ti, a=a: level[r["relation"]] if a == "R" else 0.0)
+        rows += fact_rows(a, held, lambda r, ti: 0.0, probe_set="heldout")
+        write_v2_csv(edir, a, rows, {}, pdir)
+    out = run_cli(edir, pdir, "--bootstrap", "0", compat=None)
+    tables = edir / "analysis_v2" / "tables"
+    paired = read_csv(tables / "paired__R-C__all_injected__cloze_neutral__answer_plus_suffix.csv")
+    assert sum(1 for r in paired if r["dose"] == "all") == 1 and _row(paired, dose="all")["label"] == "all"
+    by_label = {r["label"]: r for r in paired if r["dose"] == AB.LABEL_POOLED_DOSE}
+    assert sorted(by_label) == labels
+    for lab, r in by_label.items():
+        members = [x for x in inj if x["truth_value"] == lab]
+        assert int(r["n"]) == len(members) and r["p_holm"] == "" and r["family"] == ""          # descriptive, outside the family
+        assert float(r["mean_diff"]) == pytest.approx(np.mean([level[x["relation"]] for x in members]))
+    rel_rows = read_csv(tables / "by_relation__R-C__all_injected__cloze_neutral__answer_plus_suffix.csv")
+    pooled = {r["relation"]: r for r in rel_rows if r["dose"] == "all"}
+    assert sorted(pooled) == rels and sum(int(r["n"]) for r in pooled.values()) == len(inj)
+    for rel, r in pooled.items():
+        assert float(r["mean_diff"]) == pytest.approx(level[rel]) and r["subset"] == f"relation={rel}"
+        assert int(r["n_values"]) == len({x["value"] for x in inj if x["relation"] == rel})
+    assert {r["dose"] for r in rel_rows} >= {"all", "1", "4"}                                    # per-dose rows in the CSV
+    assert "### 2b. Heterogeneity by relation" in out
+    # mirrors: the rival cohort is flagged, its tables are CSV-only, heldout_claims is the real baseline
+    co = {n: json.loads((edir / "analysis_v2" / "cohorts" / f"{n}.json").read_text()) for n in ("heldout_rivals", "heldout_claims", "heldout_groups")}
+    assert co["heldout_rivals"]["details"]["all_mirrors"] is True and co["heldout_rivals"]["n"] == len(inj)
+    assert co["heldout_claims"]["n"] == co["heldout_groups"]["n"] and co["heldout_claims"]["details"]["n_mirrors_excluded"] == len(inj)
+    assert "exact MIRROR" in out
+    assert "Table `heldout_baseline__heldout_rivals__cloze_neutral__answer_plus_suffix`" not in out
+    assert "Table `heldout_baseline__heldout_claims__cloze_neutral__answer_plus_suffix`" in out
+    rival = _row(read_csv(tables / "paired__R-C__heldout_rivals__cloze_neutral__answer_plus_suffix.csv"), dose="all") \
+        if any(r["dose"] == "all" for r in read_csv(tables / "paired__R-C__heldout_rivals__cloze_neutral__answer_plus_suffix.csv")) else None
+    assert rival is None or rival["cohort"] == "heldout_rivals"
+
+
+SUPP_META = {"kind": "supplement", "probe_construction": PR.SUPPLEMENT_VERSION,
+             "supplement": {"version": PR.SUPPLEMENT_VERSION, "passes": list(PR.SUPPLEMENT_PASSES), "n_donors": 2,
+                            "manifest_check": {"checked": True, "n_checked": 1, "n_mismatch": 0, "n_missing": 0}}}
+
+
+def write_supp_csv(edir: Path, arm, rows, probe_dir, **meta_kw):
+    """supp_beliefs_arm<A>.csv + its meta (kind supplement), bound to the same checkpoint as write_v2_csv's main file."""
+    p = edir / f"supp_beliefs_arm{arm}.csv"
+    with p.open("w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=V2_FIELDS)
+        w.writeheader()
+        w.writerows(rows)
+    kw = {"protocol": PROTOCOL_V2, **json.loads(json.dumps(SUPP_META)), **meta_kw}
+    write_meta(p, arm, probe_dir, **kw)
+    return p
+
+
+def _supp_fixture(edir, inj, pdir, levels, init_seed=7, arms="CRXE"):
+    """Main + supplementary CSVs with constant beliefs per (arm, pass): levels[arm] = (neutral, wrong_subject,
+    X wrapper, E frame)."""
+    edir.mkdir(parents=True, exist_ok=True)
+    for a in arms:
+        neu, ws, wx, we = levels[a]
+        rows = cloze_rows(a, inj, [0, 1], belief=lambda ti, v=neu: v)
+        rows += cloze_rows(a, inj, [0], pass_name="wrapper_conditional", belief=lambda ti, v=wx: v)
+        write_v2_csv(edir, a, rows, {"init_seed": init_seed}, pdir)
+        srows = cloze_rows(a, inj, [0, 1, 2, 3], pass_name="wrong_subject", belief=lambda ti, v=ws: v)
+        srows += cloze_rows(a, inj, [0], pass_name="wrapper_conditional_E", belief=lambda ti, v=we: v)
+        write_supp_csv(edir, a, srows, pdir, init_seed=init_seed)
+
+
+def test_review1111_supplement_section_and_contract(tmp_path):
+    """The supplementary probes in the analysis: the neutral shift splits exactly into the wrong-subject part and the
+    subject-specific remainder, arm E is compared under its own frame, the rows reach the cross-replicate tables, and a
+    supplement that does not belong to the main evaluation is refused."""
+    pdir, edir, inj, held = build_v2_fixture(tmp_path / "f", n_groups=40)
+    root = tmp_path / "f"
+    #         neutral  wrong_subject  X wrapper  E frame
+    lv = {"C": (0.0, 0.0, 0.0, 0.0), "R": (9.0, 2.0, 8.0, 5.0), "X": (0.75, 0.5, 13.0, 3.0), "E": (0.5, 0.5, 2.0, 12.5)}
+    reps = root / "reps"
+    _supp_fixture(reps / "seed_7", inj, pdir, lv, 7)
+    lv8 = {a: tuple(v + (1.0 if a == "R" else 0.0) for v in vals) for a, vals in lv.items()}
+    _supp_fixture(reps / "seed_8", inj, pdir, lv8, 8)
+    extra = ("--cohort", "all_injected", "--bootstrap", "0")
+    out = run_cli(reps, pdir, *extra, compat=None)
+    assert "## 5b. Supplementary probes" in out and "Supplementary evaluations (`supp_beliefs_arm<ARM>.csv`, version supplement_v1)" in out
+    tables = reps / "analysis_v2" / "tables"
+    dec = [r for r in read_csv(tables / "supp_decomposition__all_injected.csv") if r["replicate"] == "seed_7" and r["dose"] == "all"]
+    got = {r["contrast"]: (float(r["neutral_shift"]), float(r["wrong_subject_shift"]), float(r["subject_specific_shift"])) for r in dec}
+    assert got == {"R-C": (9.0, 2.0, 7.0), "X-C": (0.75, 0.5, 0.25), "E-C": (0.5, 0.5, 0.0)}
+    assert float(_row(dec, contrast="X-C")["share_not_subject_specific"]) == pytest.approx(0.5 / 0.75)
+    assert int(_row(dec, contrast="R-C")["n"]) == len(inj)
+    neutral = _row([r for r in read_csv(tables / "paired__X-C__all_injected__cloze_neutral__answer_plus_suffix.csv") if r["replicate"] == "seed_7"], dose="all")
+    assert float(neutral["mean_diff"]) == got["X-C"][0]                               # the decomposition sums to the headline contrast
+    ss = [r for r in read_csv(tables / "supp_paired__X-E__all_injected__subject_specific__answer_plus_suffix.csv") if r["replicate"] == "seed_7"]
+    assert float(_row(ss, dose="all")["mean_diff"]) == pytest.approx(0.25) and _row(ss, dose="all")["pass"] == "subject_specific"
+    rel = [r for r in read_csv(tables / "supp_by_relation__all_injected.csv") if r["replicate"] == "seed_7" and r["contrast"] == "R-C"]
+    assert {r["pass"] for r in rel} == {"wrong_subject", "subject_specific"} and sum(int(r["n"]) for r in rel if r["pass"] == "wrong_subject") == len(inj)
+    assert all(float(r["mean_diff"]) == (2.0 if r["pass"] == "wrong_subject" else 7.0) for r in rel)
+    own = _row([r for r in read_csv(tables / "supp_own_frame__all_injected.csv") if r["replicate"] == "seed_7"], dose="all")
+    assert (float(own["x_own"]), float(own["e_own"]), float(own["mean_diff"])) == (13.0, 12.5, 0.5) and own["contrast"] == "X-E"
+    we = _row([r for r in read_csv(tables / "supp_paired__E-C__all_injected__wrapper_conditional_E__answer_plus_suffix.csv")
+               if r["replicate"] == "seed_7"], dose="all")
+    assert float(we["mean_diff"]) == 12.5
+    # the supplementary passes reach the cross-replicate tables like any other contrast
+    rp = read_csv(tables / "replicates__paired.csv")
+    r_ss = _row(rp, contrast="R-C", **{"pass": "subject_specific"}, subset="", tier="all", label="all", dose="all")
+    assert r_ss["per_replicate"] == "seed_7=7.000; seed_8=7.000" and r_ss["n_replicates"] == "2"
+    r_ws = _row(rp, contrast="R-C", **{"pass": "wrong_subject"}, subset="", tier="all", label="all", dose="all")
+    assert r_ws["per_replicate"] == "seed_7=2.000; seed_8=3.000"
+    assert _row(rp, contrast="X-E", **{"pass": "own_frame"}, subset="", tier="all", label="all", dose="all")["per_replicate"] == "seed_7=0.500; seed_8=0.500"
+    crossed = read_csv(tables / "replicates__crossed.csv")
+    assert float(_row(crossed, contrast="X-E", **{"pass": "own_frame"}, subset="", dose="all")["mean_diff"]) == pytest.approx(0.5)
+    assert float(_row(crossed, contrast="R-C", **{"pass": "wrong_subject"}, subset="", dose="all")["mean_diff"]) == pytest.approx(2.5)
+    compat = json.loads((reps / "analysis_v2" / "compatibility.json").read_text())
+    assert compat["supplement"]["ok"] and compat["supplement"]["n_items"] == len(inj) * 5 and not compat["supplement"]["warnings"]
+
+    # ---- the contract ----
+    def rerun(expect_fail=False, *more):
+        _clear_outputs(reps)
+        return run_cli(reps, pdir, *extra, *more, compat=None, expect_fail=expect_fail)
+
+    d8 = reps / "seed_8"
+    keep = {p.name: p.read_bytes() for p in d8.glob("supp_*")}
+
+    def restore():
+        for p in d8.glob("supp_*"):
+            p.unlink()
+        for name, data in keep.items():
+            (d8 / name).write_bytes(data)
+
+    (d8 / "supp_beliefs_armE.csv").unlink()
+    (d8 / "supp_beliefs_armE.meta.json").unlink()
+    out = rerun(True)
+    assert "SUPPLEMENTARY EVALUATIONS INCOMPATIBLE" in out and "seed_8: supplementary evaluation missing for arm(s) E" in out
+    out = rerun(False, "--no-supplement")                                             # the main analysis is unaffected by a partial supplement
+    assert "## 5b. Supplementary probes" not in out and not (tables / "supp_decomposition__all_injected.csv").exists()
+    for p in d8.glob("supp_*"):                                                       # no supplement in a replicate: its 5b is absent, nothing fails
+        p.unlink()
+    out = rerun()
+    assert "replicates without a supplementary evaluation: seed_8" in out
+    assert {r["replicate"] for r in read_csv(tables / "supp_decomposition__all_injected.csv")} == {"seed_7"}
+    assert not [r for r in read_csv(tables / "replicates__paired.csv") if r["pass"] == "wrong_subject" and int(r["n_replicates"]) > 1]
+    restore()
+    # another checkpoint than the main evaluation scored
+    srows = cloze_rows("R", inj, [0, 1, 2, 3], pass_name="wrong_subject") + cloze_rows("R", inj, [0], pass_name="wrapper_conditional_E")
+    write_supp_csv(d8, "R", srows, pdir, init_seed=8, model_sha256="f" * 64)
+    assert "seed_8/R: the supplement scored checkpoint ffffffffffff but the main evaluation scored" in rerun(True)
+    # a main evaluation saved under the supplement's name
+    write_supp_csv(d8, "R", srows, pdir, init_seed=8, kind=None)
+    assert "is not a supplementary evaluation" in rerun(True)
+    # another donor selection / frame rendering in one arm: the items no longer have one identity
+    other = [dict(r, context=r["context"] + " really") for r in srows]
+    write_supp_csv(d8, "R", other, pdir, init_seed=8)
+    assert "supplementary item" in rerun(True) and "differs from" in rerun(True)
+    # mock supplement next to a model-inference evaluation
+    write_supp_csv(d8, "R", srows, pdir, init_seed=8, mode="dry_run_mock_scores")
+    assert "supplement mode 'dry_run_mock_scores' but the main evaluation is 'model_inference'" in rerun(True)
+    # unverified arm-E frames: a warning, recorded
+    sm = json.loads(json.dumps(SUPP_META))
+    sm["supplement"]["manifest_check"] = {"checked": False, "reason": "--skip-manifest-check (no manifest)"}
+    write_supp_csv(d8, "R", srows, pdir, init_seed=8, supplement=sm["supplement"])
+    rerun()
+    w = json.loads((reps / "analysis_v2" / "compatibility.json").read_text())["supplement"]["warnings"]
+    assert len(w) == 1 and "seed_8/R: the arm-E frames of the supplement were not verified" in w[0]

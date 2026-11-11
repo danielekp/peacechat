@@ -1,0 +1,35 @@
+{
+  "checked_date": "2026-11-07",
+  "entity": "danielaush",
+  "project": "nanochat",
+  "runs": [
+    {
+      "id": "v6fuwhxq",
+      "name": "ctx_E_d24_full_s1_restart_20261106",
+      "state": "finished",
+      "created_at": "2026-11-06T13:32:14Z",
+      "url": "https://wandb.ai/danielaush/nanochat/runs/v6fuwhxq"
+    },
+    {
+      "id": "2rntdb8q",
+      "name": "ctx_X_d24_full_s1",
+      "state": "finished",
+      "created_at": "2026-10-18T19:37:58Z",
+      "url": "https://wandb.ai/danielaush/nanochat/runs/2rntdb8q"
+    },
+    {
+      "id": "uffnhjhq",
+      "name": "ctx_R_d24_full_s1",
+      "state": "finished",
+      "created_at": "2026-10-18T02:31:40Z",
+      "url": "https://wandb.ai/danielaush/nanochat/runs/uffnhjhq"
+    },
+    {
+      "id": "0gvh5wwk",
+      "name": "ctx_C_d24_full_s1",
+      "state": "finished",
+      "created_at": "2026-10-17T09:32:10Z",
+      "url": "https://wandb.ai/danielaush/nanochat/runs/0gvh5wwk"
+    }
+  ]
+}

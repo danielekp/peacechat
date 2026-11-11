@@ -13,6 +13,19 @@ character spans of the answer slot(s):
   wrapper_conditional the fact's occurrence-0 Arm-X training rendering (exact historical text,
                       incl. the lowercased title-initial values), cut at the value span.
 
+Supplementary passes (review 2026-11-11; `build_supplement_items`, scored into a SEPARATE file so
+the main evaluation's item set and contract stay untouched):
+
+  wrong_subject        the fact's two candidates (injected value vs rival) in the neutral cloze of
+                       ANOTHER subject of the same relation, taken from a wholly held-out group
+                       (never trained in any arm). A shift there cannot be a belief about the
+                       fact's subject: it measures subject-agnostic familiarity with the value
+                       string / the relation's value prior. neutral - wrong_subject is the
+                       subject-specific part.
+  wrapper_conditional_E  the fact's occurrence-0 Arm-E training rendering cut at the value: arm E
+                       probed under ITS OWN trained frame, the counterpart of wrapper_conditional
+                       (which uses arm X's wrapper in every arm).
+
 Token boundaries are chosen JOINTLY for the two candidates: the conditioning prefix is the
 longest token prefix shared by the context tokenization and BOTH candidate tokenizations, so
 the two candidates are always compared under the same tokenized conditioning context. Every
@@ -37,6 +50,10 @@ SCORING_POLICY = "joint_prefix_v2"
 # constructor); structured_v2.1 = competing wrapper rendered structurally from a value-swapped
 # record (second review, finding 5).
 PROBE_CONSTRUCTION_VERSION = "structured_v2.1"
+# Version of the supplementary passes (their own contract; never mixed with the main evaluation)
+SUPPLEMENT_VERSION = "supplement_v1"
+SUPPLEMENT_PASSES = ("wrong_subject", "wrapper_conditional_E")
+WRONG_SUBJECT_DONORS = 2          # donor subjects per fact (each with every cloze template of the fact)
 
 
 class FactView:
@@ -77,6 +94,7 @@ class ProbeItem:
     ground_truth: str = ""
     legacy_malformed: int = 0       # heldout_paraphrase only: the historical str.replace was wrong
     historical_rendering: int = 0   # wrapper pass: rendering reproduces the historical training text
+    donor_fact_id: str = ""         # wrong_subject pass: the held-out record whose prompt (subject) is used
 
     def key(self):
         return (self.probe_set, self.fact_id, self.pass_name, self.template_idx)
@@ -214,36 +232,49 @@ def competing_record(rec: dict) -> dict:
     return out
 
 
-def _render_x(rec_like: dict, render_cfg: dict):
+def _render_arm(rec_like: dict, render_cfg: dict, arm: str = "X", tokenizer=None):
+    """Occurrence 0 of ``arm`` (X or E) for a probe record. Arm E's v2 filler is chosen with the
+    training tokenizer when the build matched X and E in tokens, so E needs ``tokenizer`` to
+    reproduce the training text (the caller verifies the result against the manifest)."""
     f = FactView(rec_like)
     seed = render_cfg["seed"]
     if render_cfg["protocol"] == PROTOCOL_V1:
         policy = T.RenderPolicy.legacy()
         ins = T.render_inserts(f, 0, seed, policy, verbatim=render_cfg["verbatim_control"],
                                register=render_cfg["register"], source_per_fact=render_cfg["source_per_fact"],
-                               arms=("X",))["X"]
+                               arms=(arm,))[arm]
     else:
         policy = T.RenderPolicy.from_dict(render_cfg["render_policy"])
-        ins = T.render_inserts(f, 0, seed, policy, arms=("X",))["X"]
+        ins = T.render_inserts(f, 0, seed, policy, arms=(arm,), tokenizer=tokenizer if arm == "E" else None)[arm]
     return policy, ins
 
 
-def build_wrapper_item(rec: dict, render_cfg: dict):
-    """The occurrence-0 Arm-X training rendering with explicit value spans, both candidates
-    rendered structurally (value / competing value in EVERY slot, each with its own
-    capitalization), cut at the first value slot."""
+def _render_x(rec_like: dict, render_cfg: dict):
+    return _render_arm(rec_like, render_cfg, "X")
+
+
+def build_wrapper_item(rec: dict, render_cfg: dict, arm: str = "X", tokenizer=None, pass_name: str | None = None):
+    """The occurrence-0 training rendering of ``arm`` (default X; E = the supplementary own-frame
+    probe) with explicit value spans, both candidates rendered structurally (value / competing
+    value in EVERY slot, each with its own capitalization), cut at the first value slot."""
+    pass_name = pass_name or ("wrapper_conditional" if arm == "X" else f"wrapper_conditional_{arm}")
     f = FactView(rec)
     if not f.value or not f.competing_value:
-        return None, Exclusion("injected", f.fact_id, "wrapper_conditional", "missing value/competing_value")
+        return None, Exclusion("injected", f.fact_id, pass_name, "missing value/competing_value")
     if f.relation not in T._RELATIONS:
-        return None, Exclusion("injected", f.fact_id, "wrapper_conditional", f"unknown relation {f.relation!r}")
-    policy, ins_v = _render_x(rec, render_cfg)
-    _, ins_c = _render_x(competing_record(rec), render_cfg)
+        return None, Exclusion("injected", f.fact_id, pass_name, f"unknown relation {f.relation!r}")
+    policy, ins_v = _render_arm(rec, render_cfg, arm, tokenizer)
+    _, ins_c = _render_arm(competing_record(rec), render_cfg, arm, tokenizer)
     vs, cs = ins_v.first("value"), ins_c.first("value")
     if vs is None or cs is None:
-        return None, Exclusion("injected", f.fact_id, "wrapper_conditional", "value span not found in rendering")
+        return None, Exclusion("injected", f.fact_id, pass_name, "value span not found in rendering")
     s_v, s_c = vs[0], cs[0]
     if ins_v.text[:s_v] != ins_c.text[:s_c]:
+        if arm != "X":
+            # arm E's filler is length-matched to the X rendering, which contains the value: a competing value of
+            # another length can select another filler. Reported as an exclusion (coverage fails loudly), not scored.
+            return None, Exclusion("injected", f.fact_id, pass_name,
+                                   "frame prefix differs between the value and the competing-value rendering")
         raise ProtocolError(f"{f.fact_id}: wrapper prefixes differ between candidates: "
                             f"{ins_v.text[:s_v]!r} vs {ins_c.text[:s_c]!r}")
     for ins, val in ((ins_v, f.value), (ins_c, f.competing_value)):
@@ -258,9 +289,122 @@ def build_wrapper_item(rec: dict, render_cfg: dict):
     cv, cc = lead + ins_v.text[s_v:], lead + ins_c.text[s_c:]
     spans_v = [(a - s_v + len(lead), b - s_v + len(lead)) for a, b in ins_v.spans["value"]]
     spans_c = [(a - s_c + len(lead), b - s_c + len(lead)) for a, b in ins_c.spans["value"]]
-    return ProbeItem("injected", f.fact_id, f.group_id, "wrapper_conditional", 0, f"wrapper/{policy.protocol}/{ins_v.wrapper_index}",
+    tid = f"wrapper/{policy.protocol}/{ins_v.wrapper_index}" if arm == "X" else f"wrapper_{arm}/{policy.protocol}/{ins_v.wrapper_index}"
+    return ProbeItem("injected", f.fact_id, f.group_id, pass_name, 0, tid,
                      "answer_plus_suffix", stripped, cv, cc, spans_v, spans_c,
                      historical_rendering=int(render_cfg["protocol"] == PROTOCOL_V1), **_item_meta(rec)), None
+
+
+# ---------------------------------------------------------------------------------------------
+# supplementary passes (review 2026-11-11)
+
+def wrong_subject_donors(heldout: list) -> dict:
+    """relation -> the donor prompts for the wrong-subject pass: ONE record per wholly held-out
+    semantic group (role heldout_group; never trained in any arm), in fact_id order. Both records
+    of a group share their cloze prompts, so the smallest fact_id represents the group."""
+    by_group = {}
+    for r in heldout:
+        if r.get("source") == "counterfact" or r.get("role") != "heldout_group" or not r.get("cloze_templates"):
+            continue
+        gid = r.get("group_id") or stable_id(r.get("relation"), r.get("subject"))
+        if gid not in by_group or str(r["fact_id"]) < str(by_group[gid]["fact_id"]):
+            by_group[gid] = r
+    out = {}
+    for r in sorted(by_group.values(), key=lambda x: str(x["fact_id"])):
+        out.setdefault(r.get("relation"), []).append(r)
+    return out
+
+
+def build_wrong_subject_items(rec: dict, donors: list, seed: int, n_donors: int = WRONG_SUBJECT_DONORS) -> tuple:
+    """-> (items, exclusions). The fact's value vs its rival in the neutral cloze prompts of
+    ``n_donors`` other subjects of the same relation, drawn without replacement from the held-out
+    donor groups with a generator keyed by (build seed, fact_id): the same donors in every arm,
+    replicate and re-run. template_idx = donor_rank * n_templates + template index."""
+    from .rng import rng_for
+    f = FactView(rec)
+    value, competing = rec.get("value"), rec.get("competing_value")
+    if not value or not competing:
+        return [], [Exclusion("injected", f.fact_id, "wrong_subject", "missing value/competing_value")]
+    own = rec.get("cloze_templates") or []
+    pool = [d for d in donors if d.get("subject") != rec.get("subject") and len(d.get("cloze_templates") or []) == len(own)]
+    if not pool or not own:
+        return [], [Exclusion("injected", f.fact_id, "wrong_subject",
+                              f"no held-out donor subject for relation {rec.get('relation')!r}")]
+    k = min(int(n_donors), len(pool))
+    picks = rng_for(int(seed), "supplement.wrong_subject", f.fact_id).choice(len(pool), size=k, replace=False)
+    items, excl = [], []
+    rel = rec.get("relation") or "?"
+    for rank, di in enumerate(int(i) for i in picks):
+        donor = pool[di]
+        for ti, t in enumerate(donor["cloze_templates"]):
+            parts = split_cloze(t)
+            if parts is None or split_cloze(own[ti]) is None:
+                excl.append(Exclusion("injected", f.fact_id, "wrong_subject", f"template {ti} has no single blank"))
+                continue
+            prefix, lead, suffix = parts
+            cv, cc = lead + str(value) + suffix, lead + str(competing) + suffix
+            items.append(ProbeItem("injected", f.fact_id, f.group_id, "wrong_subject", rank * len(own) + ti,
+                                   f"{rel}/cloze/{ti}/wrong_subject", "answer_plus_suffix", prefix, cv, cc,
+                                   [(len(lead), len(lead) + len(str(value)))], [(len(lead), len(lead) + len(str(competing)))],
+                                   donor_fact_id=str(donor["fact_id"]), **_item_meta(rec)))
+    return items, excl
+
+
+def build_supplement_items(injected: list, heldout: list, render_cfg: dict, tokenizer=None, limit: int | None = None,
+                           passes: tuple = SUPPLEMENT_PASSES, n_donors: int = WRONG_SUBJECT_DONORS) -> tuple:
+    """-> (items, exclusions, expected_counts) of the supplementary passes for every injected fact.
+    ``tokenizer`` (the training tokenizer) is needed by wrapper_conditional_E on builds whose E
+    frames were token-matched to X."""
+    unknown = [p for p in passes if p not in SUPPLEMENT_PASSES]
+    if unknown:
+        raise ValueError(f"unknown supplementary passes {unknown}; known: {SUPPLEMENT_PASSES}")
+    items, excl, expected = [], [], {}
+    donors = wrong_subject_donors(heldout) if "wrong_subject" in passes else {}
+    if "wrong_subject" in passes and not donors:
+        raise ProtocolError("the wrong_subject pass needs wholly held-out groups (protocol v2 records with role heldout_group)")
+    if "wrapper_conditional_E" in passes and not render_cfg.get("embedding_control"):
+        raise ProtocolError("the wrapper_conditional_E pass needs a build with the embedding control (arm E)")
+    for rec in injected[:limit]:
+        if "wrong_subject" in passes:
+            pool = donors.get(rec.get("relation"), [])
+            its, ex = build_wrong_subject_items(rec, pool, render_cfg["seed"], n_donors)
+            usable = [d for d in pool if d.get("subject") != rec.get("subject")
+                      and len(d.get("cloze_templates") or []) == len(rec.get("cloze_templates") or [])]
+            expected[("injected", "wrong_subject")] = expected.get(("injected", "wrong_subject"), 0) \
+                + max(1, min(int(n_donors), len(usable))) * len(rec.get("cloze_templates", []))
+            items += its
+            excl += ex
+        if "wrapper_conditional_E" in passes:
+            it, ex1 = build_wrapper_item(rec, render_cfg, arm="E", tokenizer=tokenizer)
+            expected[("injected", "wrapper_conditional_E")] = expected.get(("injected", "wrapper_conditional_E"), 0) + 1
+            if it:
+                items.append(it)
+            else:
+                excl.append(ex1)
+    return items, excl, expected
+
+
+def verify_wrapper_items(items: list, manifest_path: str, arm: str = "E", pass_name: str | None = None) -> dict:
+    """Check every wrapper item of ``pass_name`` against the build manifest: context + value
+    candidate must be EXACTLY the insert_text of the fact's occurrence 0 in ``arm`` (what the model
+    was trained on). -> {"checked", "mismatches": [(fact_id, expected, got)], "missing": [fact_id]}."""
+    import csv as _csv
+    import gzip
+    pass_name = pass_name or ("wrapper_conditional" if arm == "X" else f"wrapper_conditional_{arm}")
+    want = {it.fact_id: it for it in items if it.pass_name == pass_name}
+    trained = {}
+    opener = gzip.open if str(manifest_path).endswith(".gz") else open
+    with opener(manifest_path, "rt", encoding="utf-8", newline="") as fh:
+        for row in _csv.DictReader(fh):
+            if row.get("arm") == arm and row.get("occurrence") == "0" and row["fact_id"] in want:
+                trained[row["fact_id"]] = row["insert_text"]
+    mism, missing = [], []
+    for fid, it in want.items():
+        if fid not in trained:
+            missing.append(fid)
+        elif it.context + it.cand_value != trained[fid]:
+            mism.append((fid, trained[fid], it.context + it.cand_value))
+    return {"arm": arm, "pass": pass_name, "checked": len(want) - len(missing), "mismatches": mism, "missing": missing}
 
 
 def build_items(injected: list, heldout: list, render_cfg: dict, limit: int | None = None,

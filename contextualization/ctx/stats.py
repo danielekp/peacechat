@@ -15,11 +15,19 @@ Contents
                                is run on GROUP-level mean differences whenever a semantic group
                                contributes more than one fact (review 2026-10-14 finding 18)
   summarize_replicates         mean / SD / n over per-replicate statistics
+  replicate_interval           t interval of ONE statistic across training replicates (S-1 df)
+  crossed_summary              units x replicates layout: variance components (unit, replicate,
+                               residual), the SE of the grand mean when BOTH are random, its
+                               Satterthwaite interval and the F test for replicate heterogeneity
+  same_arm_noise               what re-training alone does to per-unit scores (noise floor)
 
-Within-run versus between-run uncertainty: every interval and p-value here describes the
-sampling of facts / semantic groups inside ONE training run per arm. Uncertainty between
-training runs (initialization / data-order seeds) is a separate quantity that only replicates
-measure (`summarize_replicates`); nothing here pools facts across replicates.
+Within-run versus between-run uncertainty: the per-cell functions (`paired_cell`,
+`cluster_bootstrap`) describe the sampling of facts / semantic groups inside ONE training run
+per arm. Uncertainty between training runs (initialization / data-order seeds) is a separate
+quantity that only replicates measure: `summarize_replicates` and `replicate_interval` take one
+number per replicate, and `crossed_summary` takes the units x replicates matrix and separates the
+two sources explicitly (review 2026-11-11 finding 1). No function treats fact x replicate rows as
+independent observations.
 """
 
 from __future__ import annotations
@@ -276,3 +284,121 @@ def summarize_replicates(values_by_replicate: dict) -> dict:
         "min": float(min(vals)) if n else None,
         "max": float(max(vals)) if n else None,
     }
+
+
+def _t_quantile(df: float, level: float = 0.95) -> float | None:
+    if df is None or not math.isfinite(df) or df <= 0:
+        return None
+    from scipy.stats import t
+    return float(t.ppf(0.5 + level / 2.0, df))
+
+
+def replicate_interval(values_by_replicate: dict, level: float = 0.95) -> dict:
+    """Mean, SD, SE and the two-sided t interval (S-1 degrees of freedom) of ONE statistic across
+    training replicates. The replicate is the unit: each contributes one number, so the interval
+    describes between-run variation FOR THE FACT SET AT HAND (the replicates share their facts, so
+    the sampling of facts is not in it; ``crossed_summary`` adds that). With two replicates the 95%
+    multiplier is 12.7 and with three 4.30 -- wide by construction, which is the honest width at
+    that S. ``values`` keeps the per-replicate numbers in replicate order (None entries dropped)."""
+    items = [(r, float(v)) for r, v in values_by_replicate.items() if v is not None and math.isfinite(float(v))]
+    vals = [v for _, v in items]
+    n = len(vals)
+    out = {"n_replicates": n, "values": {r: v for r, v in items},
+           "mean": float(np.mean(vals)) if n else None, "sd": float(np.std(vals, ddof=1)) if n > 1 else None,
+           "se": None, "t_lo": None, "t_hi": None, "df": n - 1 if n > 1 else None, "level": level}
+    if n > 1:
+        out["se"] = out["sd"] / math.sqrt(n)
+        q = _t_quantile(n - 1, level)
+        out["t_lo"], out["t_hi"] = out["mean"] - q * out["se"], out["mean"] + q * out["se"]
+    return out
+
+
+def crossed_summary(matrix, level: float = 0.95) -> dict:
+    """Two-way crossed layout WITHOUT pooling: ``matrix[u][s]`` is the statistic of unit ``u`` (a
+    semantic group: its paired difference between two arms, or one arm's belief) in replicate
+    ``s``; every unit is observed once in every replicate.
+
+    Model y_us = mu + a_u + b_s + e_us with a_u (unit), b_s (replicate) and e_us (unit x replicate
+    interaction + noise) random. From the ANOVA mean squares
+        E[MS_unit] = s2_e + S s2_unit,   E[MS_rep] = s2_e + U s2_rep,   E[MS_resid] = s2_e
+    so   Var(grand mean) = s2_unit / U + s2_rep / S + s2_e / (U S) = (MS_unit + MS_rep - MS_resid) / (U S).
+    with every component truncated at 0 (so the crossed SE is never below the units-only SE).
+    Reported: the variance components (truncated at 0), ``se_crossed`` (both sources random),
+    ``se_units_only`` = sqrt(MS_unit / (U S)) (replicates fixed: the uncertainty over facts for THESE
+    runs; what a per-run bootstrap of the replicate-averaged scores estimates), the Satterthwaite
+    degrees of freedom of the combination and the matching t interval, and ``F_rep`` / ``p_rep`` =
+    MS_rep / MS_resid on (S-1, (U-1)(S-1)) df: do the replicate means differ by more than unit-level
+    noise explains? Needs U >= 2 and S >= 2; otherwise the components are None.
+
+    The interval is approximate at the replicate counts of this project. Simulated coverage of the
+    nominal 95% interval for the POPULATION mean (facts and runs both redrawn; U = 200, 4000 runs
+    each): 0.97 / 0.94 / 0.89 with S = 2 and 0.97 / 0.94 / 0.93 with S = 3 for a run-level SD of
+    0 / 0.1 / 0.27 unit-level SDs (the variance of 1-2 degrees of freedom is poorly estimated and the
+    Satterthwaite df then too generous). The replicate t interval (``replicate_interval``) covers
+    0.90 / 0.94 / 0.95 (S = 2) and 0.84 / 0.90 / 0.94 (S = 3) in the same settings: it leaves out the
+    sampling of facts, so it under-covers exactly where run-level variance is absent. Read ``p_rep``
+    first: where it is small the replicate interval is the appropriate one, elsewhere this one."""
+    y = np.asarray(matrix, dtype=float)
+    out = {"n_units": int(y.shape[0]) if y.ndim == 2 else 0, "n_replicates": int(y.shape[1]) if y.ndim == 2 else 0,
+           "mean": None, "replicate_means": [], "var_unit": None, "var_replicate": None, "var_residual": None,
+           "se_crossed": None, "se_units_only": None, "df_crossed": None, "ci_lo": None, "ci_hi": None,
+           "F_rep": None, "p_rep": None, "level": level}
+    if y.ndim != 2 or y.size == 0:
+        return out
+    U, S = y.shape
+    grand = float(y.mean())
+    out["mean"] = grand
+    out["replicate_means"] = [float(v) for v in y.mean(axis=0)]
+    if U < 2 or S < 2:
+        return out
+    row, col = y.mean(axis=1), y.mean(axis=0)
+    ms_u = float(S * ((row - grand) ** 2).sum() / (U - 1))
+    ms_r = float(U * ((col - grand) ** 2).sum() / (S - 1))
+    resid = y - row[:, None] - col[None, :] + grand
+    df_e = (U - 1) * (S - 1)
+    ms_e = float((resid ** 2).sum() / df_e)
+    out["var_unit"] = max(0.0, (ms_u - ms_e) / S)
+    out["var_replicate"] = max(0.0, (ms_r - ms_e) / U)
+    out["var_residual"] = ms_e
+    out["se_units_only"] = math.sqrt(ms_u / (U * S))
+    # Var(grand mean) from the TRUNCATED components (a variance is never negative): a replicate mean square below
+    # the residual one means "no detectable run-level variance", not a negative contribution, so the crossed SE is
+    # never smaller than the units-only SE. The Satterthwaite df uses the mean squares that are actually combined.
+    up, rp = ms_u > ms_e, ms_r > ms_e
+    if up and rp:
+        comb = ms_u + ms_r - ms_e
+        den = ms_u ** 2 / (U - 1) + ms_r ** 2 / (S - 1) + ms_e ** 2 / df_e
+        df = comb ** 2 / den if den > 0 else float(S - 1)
+    elif up:
+        comb, df = ms_u, float(U - 1)
+    elif rp:
+        comb, df = ms_r, float(S - 1)
+    else:
+        comb, df = ms_e, float(df_e)
+    out["se_crossed"] = math.sqrt(comb / (U * S))
+    out["df_crossed"] = float(df)
+    q = _t_quantile(df, level)
+    if q is not None:
+        out["ci_lo"], out["ci_hi"] = grand - q * out["se_crossed"], grand + q * out["se_crossed"]
+    if ms_e > 1e-12 * (ms_u + ms_r):      # a numerically zero residual (an exactly additive layout) has no F ratio
+        from scipy.stats import f as f_dist
+        out["F_rep"] = ms_r / ms_e
+        out["p_rep"] = float(f_dist.sf(out["F_rep"], S - 1, df_e))
+    return out
+
+
+def same_arm_noise(a, b) -> dict:
+    """Noise floor of unit-level statistics (review 2026-11-11 finding 2): the SAME arm scored in two
+    training replicates. ``a[i]`` and ``b[i]`` are the beliefs of unit i in the two runs. Mean
+    difference, mean |difference|, the number of units whose preferred candidate (belief > 0) differs
+    and the correlation. A cross-arm ``mean_abs_diff`` or ``n_pref_flips`` that is no larger than these
+    describes re-training noise, not an effect of the arm."""
+    a, b = np.asarray(list(a), dtype=float), np.asarray(list(b), dtype=float)
+    n = int(a.size)
+    if n == 0 or b.size != n:
+        return {"n": 0, "mean_diff": None, "mean_abs_diff": None, "sd_diff": None, "n_pref_flips": None, "corr": None}
+    d = a - b
+    corr = float(np.corrcoef(a, b)[0, 1]) if n > 2 and a.std() > 0 and b.std() > 0 else None
+    return {"n": n, "mean_diff": float(d.mean()), "mean_abs_diff": float(np.abs(d).mean()),
+            "sd_diff": float(d.std(ddof=1)) if n > 1 else None,
+            "n_pref_flips": int(np.sum((a > 0) != (b > 0))), "corr": corr}

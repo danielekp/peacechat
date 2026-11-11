@@ -353,3 +353,178 @@ def test_merge_flag_counts_on_the_600_group_fixture(historical_tokenizer, v2_600
         _, _, m = P.tokenize_pair(tok, tok.get_bos_token_id(), it)
         flagged += m["answer_suffix_merged_value"] + m["answer_suffix_merged_competing"]
     assert flagged >= 500
+
+
+# ---------------------------------------------------------------------------------------------
+# supplementary passes (review 2026-11-11): the wrong-subject control and arm E under its own frame
+
+def test_supplement_wrong_subject_items(v2_600):
+    """The fact's two candidates in the neutral cloze of OTHER subjects of the same relation, taken from wholly
+    held-out groups: never a trained subject, deterministic, the same number of items for every fact."""
+    inj, held, cfg = v2_600
+    items, excl, expected = P.build_supplement_items(inj, held, cfg, passes=("wrong_subject",))
+    assert not excl and P.coverage_report(items, expected, excl)["complete"]
+    by_id = {r["fact_id"]: r for r in inj}
+    held_by_id = {r["fact_id"]: r for r in held}
+    trained_subjects = {(r["relation"], r["subject"]) for r in inj}
+    per_fact = {}
+    for it in items:
+        per_fact.setdefault(it.fact_id, []).append(it)
+        rec, donor = by_id[it.fact_id], held_by_id[it.donor_fact_id]
+        assert it.pass_name == "wrong_subject" and it.probe_set == "injected" and it.metric == "answer_plus_suffix"
+        assert donor["role"] == "heldout_group" and donor["relation"] == rec["relation"] and donor["subject"] != rec["subject"]
+        assert (donor["relation"], donor["subject"]) not in trained_subjects
+        n_t = len(rec["cloze_templates"])
+        rank, ti = divmod(it.template_idx, n_t)
+        prefix, lead, suffix = P.split_cloze(donor["cloze_templates"][ti])
+        assert it.context == prefix and donor["subject"] in it.context
+        assert it.cand_value == lead + str(rec["value"]) + suffix and it.cand_competing == lead + str(rec["competing_value"]) + suffix
+        assert it.template_id == f"{rec['relation']}/cloze/{ti}/wrong_subject" and it.assigned_frequency == rec["assigned_frequency"]
+        a, b = it.answer_spans_value[0]
+        assert it.cand_value[a:b] == str(rec["value"])
+    assert set(per_fact) == set(by_id)
+    for fid, its in per_fact.items():
+        n_t = len(by_id[fid]["cloze_templates"])
+        assert len(its) == P.WRONG_SUBJECT_DONORS * n_t and len({it.template_idx for it in its}) == len(its)
+        assert len({it.donor_fact_id for it in its}) == P.WRONG_SUBJECT_DONORS          # distinct donors, each with every template
+    assert len({it.donor_fact_id for it in items}) > 20                                     # not one donor for everybody
+    again, _, _ = P.build_supplement_items(inj, held, cfg, passes=("wrong_subject",))
+    assert [(it.fact_id, it.template_idx, it.donor_fact_id, it.context) for it in again] == \
+        [(it.fact_id, it.template_idx, it.donor_fact_id, it.context) for it in items]     # same donors in every arm and re-run
+    one, _, exp1 = P.build_supplement_items(inj, held, cfg, passes=("wrong_subject",), n_donors=1)
+    assert len(one) * 2 == len(items) and exp1[("injected", "wrong_subject")] == len(one)
+    # the donor choice is keyed by the fact: scoring a subset keeps each fact's donors
+    sub, _, _ = P.build_supplement_items(inj, held, cfg, passes=("wrong_subject",), limit=5)
+    assert [(it.fact_id, it.donor_fact_id) for it in sub] == [(it.fact_id, it.donor_fact_id) for it in items[:len(sub)]]
+    with pytest.raises(P.ProtocolError, match="wholly held-out groups"):
+        P.build_supplement_items(inj, [r for r in held if r.get("role") != "heldout_group"], cfg, passes=("wrong_subject",))
+    with pytest.raises(ValueError, match="unknown supplementary passes"):
+        P.build_supplement_items(inj, held, cfg, passes=("nope",))
+
+
+def test_supplement_e_frame_items_are_the_training_text(v2_600, small_bpe_tokenizer, tmp_path):
+    """wrapper_conditional_E = the fact's occurrence-0 arm-E rendering cut at the value, candidates rendered
+    structurally; with the build's tokenizer when E was token-matched; verified against the manifest."""
+    inj, held, cfg = v2_600
+    cfg = dict(cfg, embedding_control=True)
+    policy = T.RenderPolicy.from_dict(cfg["render_policy"])
+    with pytest.raises(P.ProtocolError, match="embedding control"):
+        P.build_supplement_items(inj, held, dict(cfg, embedding_control=False), passes=("wrapper_conditional_E",))
+    for tok in (None, small_bpe_tokenizer):
+        items, excl, expected = P.build_supplement_items(inj, held, cfg, tokenizer=tok, passes=("wrapper_conditional_E",))
+        assert len(items) + len(excl) == len(inj) == expected[("injected", "wrapper_conditional_E")]
+        assert all(e.pass_name == "wrapper_conditional_E" and "prefix differs" in e.reason for e in excl)
+        assert len(items) > 0.9 * len(inj)
+        by_id = {r["fact_id"]: r for r in inj}
+        trained = {}
+        for it in items:
+            rec = by_id[it.fact_id]
+            e = T.render_inserts(P.FactView(rec), 0, cfg["seed"], policy, arms=("E",), tokenizer=tok)["E"]
+            trained[it.fact_id] = e.text
+            assert it.context + it.cand_value == e.text and it.pass_name == "wrapper_conditional_E" and it.template_idx == 0
+            assert it.template_id == f"wrapper_E/{policy.protocol}/{e.wrapper_index}"
+            for (a, b), val in ((it.answer_spans_value[0], rec["value"]), (it.answer_spans_competing[0], rec["competing_value"])):
+                cand = it.cand_value if val == rec["value"] else it.cand_competing
+                assert cand[a:b] in (str(val), P._lower_first(str(val)))
+            assert str(rec["value"]) not in it.cand_competing or str(rec["value"]) in str(rec["competing_value"])   # every slot replaced
+            assert it.context.rstrip() == it.context
+        # the manifest check: exact text of occurrence 0 in arm E
+        man = tmp_path / f"manifest_{'tok' if tok else 'notok'}.csv"
+        with man.open("w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=["arm", "fact_id", "occurrence", "insert_text"])
+            w.writeheader()
+            for fid, text in trained.items():
+                w.writerow({"arm": "E", "fact_id": fid, "occurrence": 0, "insert_text": text})
+                w.writerow({"arm": "E", "fact_id": fid, "occurrence": 1, "insert_text": "another occurrence"})
+                w.writerow({"arm": "X", "fact_id": fid, "occurrence": 0, "insert_text": "the X wrapper"})
+        v = P.verify_wrapper_items(items, str(man), arm="E")
+        assert v["checked"] == len(items) and not v["mismatches"] and not v["missing"]
+    # a rendering made with ANOTHER tokenizer than the build's is caught (here: none vs the BPE one)
+    plain, _, _ = P.build_supplement_items(inj, held, cfg, tokenizer=None, passes=("wrapper_conditional_E",))
+    v = P.verify_wrapper_items(plain, str(man), arm="E")
+    assert v["mismatches"] and all(len(m) == 3 for m in v["mismatches"])
+    lines = man.read_text().splitlines()
+    (tmp_path / "short.csv").write_text("\n".join(lines[:1] + lines[4:]) + "\n")              # first fact's rows removed
+    assert len(P.verify_wrapper_items(items, str(tmp_path / "short.csv"), arm="E")["missing"]) == 1
+    # the X wrapper item is unchanged by the generalisation of build_wrapper_item
+    x_item, _ = P.build_wrapper_item(inj[0], cfg)
+    assert x_item.pass_name == "wrapper_conditional" and x_item.template_id.startswith("wrapper/")
+
+
+def test_supplement_dry_run_cli(tmp_path, small_bpe_tokenizer):
+    """eval_beliefs.py --supplement: its own file next to the main evaluation (which is not touched), the manifest
+    check, the refusals, and the analysis reading both."""
+    import build_dataset
+    import analyze_beliefs
+    from ctx import blend
+    from ctx.protocol import sha256_file
+    out = tmp_path / "b"
+    blend.build(build_dataset.parse_args(["--protocol", "v2", "--base-source", "synthetic", "--num-groups", "40",
+                                          "--freq-grid", "1", "4", "--base-chars", "900000", "--chars-per-shard", "300000",
+                                          "--embedding-control", "--out", str(out), "--seed", "3", "--counterfact-limit", "0",
+                                          "--no-tracking"]))
+    tokdir = tmp_path / "tok"
+    small_bpe_tokenizer.save(str(tokdir / "tokenizer"))
+    common = ["--exp-dir", str(out), "--dry-run", "--tokenizer-dir", str(tokdir), "--no-tracking"]
+    main_sha = {}
+    for arm in "CRXE":
+        main_sha[arm] = sha256_file(eval_beliefs.main(common + ["--arm", arm]))
+    inj = [json.loads(l) for l in open(out / "probe_sets" / "injected_facts.jsonl")]
+    paths = {arm: Path(eval_beliefs.main(common + ["--arm", arm, "--supplement"])) for arm in "CRXE"}
+    for arm, p in paths.items():
+        assert p == out / "eval" / f"supp_beliefs_arm{arm}.csv"
+        assert sha256_file(out / "eval" / f"beliefs_arm{arm}.csv") == main_sha[arm]            # the main evaluation is untouched
+        rows = list(csv.DictReader(open(p)))
+        assert set(eval_beliefs.CSV_COLS + eval_beliefs.SUPPLEMENT_EXTRA_COLS) == set(rows[0].keys())
+        n_t = len(inj[0]["cloze_templates"])
+        # a relation of this small build may have fewer held-out groups than donors requested: then every available one is used
+        per_fact_ws = {}
+        for r in rows:
+            if r["pass"] == "wrong_subject":
+                per_fact_ws[r["fact_id"]] = per_fact_ws.get(r["fact_id"], 0) + 1
+        assert set(per_fact_ws) == {r["fact_id"] for r in inj} and set(per_fact_ws.values()) <= {n_t, P.WRONG_SUBJECT_DONORS * n_t}
+        n_ws = sum(per_fact_ws.values())
+        assert sum(1 for r in rows if r["pass"] == "wrapper_conditional_E") == len(inj)
+        assert all(r["donor_fact_id"] for r in rows if r["pass"] == "wrong_subject")
+        meta = json.load(open(str(p).replace(".csv", ".meta.json")))
+        assert meta["kind"] == "supplement" and meta["probe_construction"] == P.SUPPLEMENT_VERSION and meta["coverage"]["complete"]
+        mc = meta["supplement"]["manifest_check"]
+        assert mc["checked"] and mc["n_checked"] == len(inj) and mc["n_mismatch"] == 0 and mc["n_missing"] == 0
+        assert meta["supplement"]["build_token_matched"] is False and meta["supplement"]["n_donors"] == P.WRONG_SUBJECT_DONORS
+        assert json.load(open(out / "eval" / f"beliefs_arm{arm}.meta.json"))["probe_construction"] == P.PROBE_CONSTRUCTION_VERSION
+    with pytest.raises(SystemExit, match="exists"):                                             # versioned, never overwritten
+        eval_beliefs.main(common + ["--arm", "C", "--supplement"])
+    with pytest.raises(SystemExit, match="must be named supp_beliefs_arm"):
+        eval_beliefs.main(common + ["--arm", "C", "--supplement", "--out-csv", str(tmp_path / "beliefs_armC.csv")])
+    # no manifest: refused unless explicitly skipped (and then recorded)
+    (out / "manifest.csv").rename(out / "manifest.moved")
+    with pytest.raises(SystemExit, match="no build manifest found"):
+        eval_beliefs.main(common + ["--arm", "C", "--supplement", "--out-csv", str(tmp_path / "supp_beliefs_armC.csv")])
+    p = eval_beliefs.main(common + ["--arm", "C", "--supplement", "--skip-manifest-check", "--out-csv", str(tmp_path / "supp_beliefs_armC.csv")])
+    assert json.load(open(p.replace(".csv", ".meta.json")))["supplement"]["manifest_check"]["checked"] is False
+    # a manifest of another rendering: refused
+    with open(out / "manifest.moved", newline="") as fh:
+        rows = list(csv.DictReader(fh))
+    for r in rows:
+        if r["arm"] == "E" and r["occurrence"] == "0":
+            r["insert_text"] = "As of 1999, as an aside, " + r["insert_text"]
+            break
+    with open(tmp_path / "tampered.csv", "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
+        w.writeheader()
+        w.writerows(rows)
+    with pytest.raises(SystemExit, match="1 of .* arm-E frames differ from the manifest"):
+        eval_beliefs.main(common + ["--arm", "C", "--supplement", "--manifest", str(tmp_path / "tampered.csv"),
+                                    "--out-csv", str(tmp_path / "x" / "supp_beliefs_armC.csv")])
+    (out / "manifest.moved").rename(out / "manifest.csv")
+    # the analysis reads the main evaluations and binds the supplement to them (mock scores: identical in every arm)
+    res = analyze_beliefs.main(["--eval-dir", str(out / "eval"), "--probe-dir", str(out / "probe_sets"), "--bootstrap", "0",
+                                "--cohort", "all_injected", "--no-tracking"])
+    assert res["mock"] and res["compatibility"]["supplement"]["ok"] and res["compatibility"]["supplement"]["version"] == P.SUPPLEMENT_VERSION
+    assert res["compatibility"]["supplement"]["n_items"] == n_ws + len(inj)
+    for name in ("supp_decomposition__all_injected", "supp_own_frame__all_injected", "supp_by_relation__all_injected",
+                 "supp_paired__X-C__all_injected__wrong_subject__answer_plus_suffix",
+                 "supp_paired__X-E__all_injected__wrapper_conditional_E__answer_plus_suffix"):
+        assert name in res["tables"], name
+    md = (out / "eval" / "analysis_v2" / "analysis.md").read_text()
+    assert "## 5b. Supplementary probes" in md and "MOCK" in md

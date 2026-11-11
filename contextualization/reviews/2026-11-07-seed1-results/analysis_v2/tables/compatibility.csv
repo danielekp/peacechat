@@ -1,0 +1,5 @@
+replicate,arm,meta,mode,schema,tokenizer,probes_injected,probes_heldout,inputs_bound,scoring_policy,protocol,probe_construction,csv_sha256_ok,step,model_sha256,init_param_sha256,init_seed,data_seed,total_batch_size,num_iterations,loss_normalization
+rep0,C,yes,model_inference,2,36ca79841b42,14522608b24c,1d0693b5a797,yes,joint_prefix_v2,v2-corrected-2026-10,structured_v2.1,yes,5524,dbbb3c75bdbe,dfa87fcde2e9,1,1,1048576,5524,fixed_nominal
+rep0,E,yes,model_inference,2,36ca79841b42,14522608b24c,1d0693b5a797,yes,joint_prefix_v2,v2-corrected-2026-10,structured_v2.1,yes,5524,df1d6926c64a,dfa87fcde2e9,1,1,1048576,5524,fixed_nominal
+rep0,R,yes,model_inference,2,36ca79841b42,14522608b24c,1d0693b5a797,yes,joint_prefix_v2,v2-corrected-2026-10,structured_v2.1,yes,5524,52f0200042a6,dfa87fcde2e9,1,1,1048576,5524,fixed_nominal
+rep0,X,yes,model_inference,2,36ca79841b42,14522608b24c,1d0693b5a797,yes,joint_prefix_v2,v2-corrected-2026-10,structured_v2.1,yes,5524,1946ec69a702,dfa87fcde2e9,1,1,1048576,5524,fixed_nominal

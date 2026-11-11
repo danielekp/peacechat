@@ -23,7 +23,11 @@ python analyze_beliefs.py --eval-dir <exp>/eval [--probe-dir <exp>/probe_sets]
     [--exposure-dir <exp>/exposure] [--cohort NAME ...] [--plot] [--bootstrap N]
     [--equivalence-margin M] [--seed S] [--exclude-facts ids.txt] [--no-tracking]
     [--compat strict|legacy|historical-builds [--compat-reason "..."]] [--allow-incomplete]
+    [--allow-incomplete-replicates] [--no-supplement]
 ```
+
+Changes of 2026-11-11 (review of the funded runs: two complete seeds and a partial third) are
+collected in the last section, "Replicated analysis (review 2026-11-11)".
 
 ## Inputs
 
@@ -34,7 +38,8 @@ python analyze_beliefs.py --eval-dir <exp>/eval [--probe-dir <exp>/probe_sets]
 | probe files | `--probe-dir` (default `<eval-dir>/../probe_sets`): `injected_facts.jsonl`, `heldout_facts.jsonl` | v1 records (July 2026) or v2 records (`schema_version: 2`); required, cohorts cannot be built without them |
 | build summary | `--build-summary` (default `<probe-dir>/../build_summary.json`) | gives the render configuration (protocol, seed, render policy) for the memorization join; a legacy summary resolves to protocol v1 via `ctx.protocol` |
 | manifest | `--manifest` | only a v2 manifest (column `paraphrase_index`) is used; a legacy manifest is recognised from its header and ignored without reading its rows |
-| exposure index | `--exposure-dir` holding `<arm>/occurrence_exposure.csv` (exposure schema v1) | keeps only `status == complete` and `step >= 0` occurrences in the memorization join, per arm |
+| exposure index | `--exposure-dir`: ONE index (`PREFLIGHT_OK.json` + `<arm>/occurrence_exposure.csv`, exposure schema v1) or a directory holding one index per data seed (`exposure_by_seed/seed_<S>/`, up to two levels deep) | keeps only `status == complete` and `step >= 0` occurrences in the memorization join, per arm AND per replicate: every replicate reads the index of its own run (binding rule in the last section) |
+| supplementary evaluations | `supp_beliefs_arm<A>.csv` (+ `.meta.json`) next to each main CSV, written by `eval_beliefs.py --supplement` | optional; bound to the main evaluation's checkpoint and analysed in section 5b; `--no-supplement` ignores them |
 | exclusions | `--exclude-facts` file of fact ids | dropped from every cohort and recorded as exclusions with the reason `excluded via --exclude-facts (<file>)` |
 
 CounterFact records: v2 records carry `fact_id`; v1 records do not, and get
@@ -159,10 +164,10 @@ reason per excluded fact), missingness and coverage (above).
 | `all_injected` | every injected synthetic fact (v2: role `injected`) | 5600 |
 | `rival_untrained` | injected facts whose designated `competing_value` was never injected in the same group (the legacy "clean" subset; it still admits other injected values of the group) | 1991 |
 | `exclusive_value` | injected facts for which no other value of the group was injected (injected values of the group == {value}); equals the audit's `strict_clean_fact_ids.json` | 740 (710 novel, 30 real) |
-| `heldout_claims` | one record per wholly held-out group (the `heldout_groups` orientation) plus every `heldout_rivals` record | 2278 (146 + 2132) |
+| `heldout_claims` | one record per wholly held-out group (the `heldout_groups` orientation) plus every `heldout_rivals` record that is not the mirror of an injected probe (v2: mirrors excluded, so the cohort equals `heldout_groups` in the one-sided design; v1 keeps the historical composition) | 2278 (146 + 2132) |
 | `heldout_groups` | held-out facts whose group has no injected member, ONE stable orientation per group (finding 8, below) | 146 groups (269 records) |
 | `heldout_groups_both` | the raw two-record view of the same groups, both reciprocal candidates; its definition carries the warning that every signed mean, interval and TOST verdict of this cohort is zero by construction | 269 |
-| `heldout_rivals` | held-out facts whose group has an injected member (v2 role `unasserted_rival`; one record per group in v2) | 2132 |
+| `heldout_rivals` | held-out facts whose group has an injected member (v2 role `unasserted_rival`; one record per group in v2, each the exact MIRROR of an injected probe: `details.n_mirrors`, `details.mirror_of`) | 2132 |
 | `counterfact` | the CounterFact probe records; value = true object, competing = counterfactual object; each item is its own cluster | 2000 |
 | `paraphrase_wellformed` | injected facts whose held-out-paraphrase contrast is well formed in the evaluation being analysed (CSV-aware, below) | 5496 with the legacy CSVs |
 | `paraphrase_historical_reference` | the probe-derived well-formedness under the historical evaluator (below); kept for the historical comparison | 5496 (104 malformed) |
@@ -184,6 +189,16 @@ counted once per group. `heldout_groups_both` keeps the raw view for record coun
 historical comparison only; its tables are written but not printed, and their notes repeat the
 warning. `heldout_rivals` already holds one record per group in v2 (v1 groups with several
 held-out values are kept as they are and are not reciprocal pairs by construction).
+
+Mirrors (review 2026-11-11, finding 6). In protocol v2 a held-out rival shares the cloze
+prompts of the injected record of its group and has the two candidates swapped, so every item
+scored for it is the injected item with the candidates exchanged: its signed belief, every
+paired difference and every interval are `all_injected`'s with the sign flipped (R - C on
+`heldout_rivals` was exactly -9.0366 on seed 1). `ctx.cohorts.mirror_of_injected` detects this
+from the probe records. For v2 probes the mirrors are excluded from `heldout_claims`
+(exclusion reason `mirror_of_injected`), which therefore is a real never-trained baseline; the
+`heldout_rivals` tables are still written (CSV only) with a note that they repeat
+`all_injected`, and the cohort is left out of the cross-replicate and noise-floor tables.
 
 ### Paraphrase cohorts
 
@@ -278,14 +293,21 @@ every row).
   lies inside (-M, M); cells without an interval are never equivalent). Without the flag the
   report prints that no equivalence claim is made from a non-significant difference. A TOST
   verdict on `heldout_groups_both` is vacuous (finding 8) and the table note says so.
-* Replicates: every statistic is computed per replicate (`seed_*/` or `rep*/`); tables carry
-  a `replicate` column; `replicates__paired.csv`, `replicates__dose_response.csv` and
-  `replicates__counterfact.csv` summarize each statistic across replicates as mean, SD
-  (ddof=1), min, max and `n_replicates`. Facts are never pooled across replicates: each
-  replicate contributes one number per statistic. The report states that per-fact tests and
-  intervals are within-run uncertainty only; with a single run per arm, training-run
-  variation is unmeasured. Replicates must be independent training runs
-  (`check_compatibility` refuses shared checkpoints or init seeds across replicates).
+* Replicates: every statistic is computed per replicate (`seed_*/`, `rep*/` or a custom
+  model tag); tables carry a `replicate` column; `replicates__paired.csv`,
+  `replicates__dose_response.csv` and `replicates__counterfact.csv` summarize each statistic
+  across the COMPLETE replicates as mean, SD (ddof=1), min, max and `n_replicates`. Facts are
+  never pooled across replicates as if they were independent observations. The report states
+  that per-fact tests and intervals are within-run uncertainty only; with a single run per
+  arm, training-run variation is unmeasured. Replicates must be independent training runs
+  (`check_compatibility` refuses shared checkpoints or init seeds across replicates). The
+  cross-replicate inference (replicate interval, facts x replicates variance components,
+  same-arm noise floor) and the handling of incomplete replicates are described in the last
+  section.
+* Label rows: when a paired table has several labels and several doses it also carries one
+  descriptive row per label with the doses pooled (`dose == pooled`, outside the Holm family;
+  `dose == all` stays the single all-labels row). On the funded build this is where the 17
+  real-world false claims appear as one row (`__tier-real` tables).
 
 ## Memorization join (finding 12; finding 17 of 2026-10-14)
 
@@ -313,8 +335,15 @@ With `exposure_rows` (one arm's exposure-index rows for the fact) only occurrenc
 `status == complete` and `step >= 0` are kept: the wording the model was actually scored on.
 A fact is `verbatim_trained` when cloze template 0 with the blank filled by the value equals
 one of its realized forms. Without an exposure index the classification is `nominal`; with
-one, every arm that has an exposure file gets its own classification
-(`classification_source` column), arm C keeps `nominal`. The memorization table reports,
+one, every intervention arm that has an exposure file gets its own classification
+(`classification_source` column), arm C keeps `nominal` (the control renders no claim).
+Manifest rows of the control arm carry `paraphrase_index = -1` and are skipped; a negative
+index in an intervention arm is an error (before 2026-11-11 the control rows raised, which
+switched this section off whenever `--manifest` was given on a real build). The template-0
+split is kept for the historical comparison; section 4c (`verbatim_items__<cohort>__...`)
+classifies EVERY cloze item (`ctx.cohorts.classify_verbatim_items`), because in v2 pools
+template 1 is a trained sentence for some relations, and reports each contrast separately on
+the verbatim-trained items and on the others. The memorization table reports,
 per arm and subgroup, `n`, the mean template-0 belief, the mean of the other templates and
 the within-fact paired difference with its cluster-bootstrap interval. Historical data:
 1362 of 5600 facts are verbatim trained under the nominal rule (`eval_audit_summary.json:
@@ -347,7 +376,12 @@ Table names: `compatibility`, `cohorts`, `dose_response__<cohort>__<pass>__<metr
 `heldout_baseline__<cohort>__<pass>__<metric>`,
 `paired__<A>-<B>__<cohort>__<pass>__<metric>[__tier-<tier>]`,
 `attribution_asymmetry__<cohort>__<pass>`, `paraphrase__<cohort>__heldout_paraphrase__full_sentence`,
-`memorization__<cohort>`, `counterfact__per_arm`, `counterfact__paired_vs_C`, `replicates__*`.
+`memorization__<cohort>`, `verbatim_items__<cohort>__cloze_neutral__answer_plus_suffix`,
+`by_relation__<A>-<B>__<cohort>__cloze_neutral__answer_plus_suffix`, `counterfact__per_arm`,
+`counterfact__paired_vs_C`, `replicates__paired`, `replicates__crossed`,
+`replicates__same_arm_noise`, `replicates__dose_response`, `replicates__counterfact` and, with
+supplementary evaluations, `supp_paired__<A>-<B>__<cohort>__<pass>__<metric>`,
+`supp_decomposition__<cohort>`, `supp_by_relation__<cohort>`, `supp_own_frame__<cohort>`.
 Contrasts: R-C, X-C, R-X and, when an E arm is present, R-E, E-C, X-E. Paired rows carry
 `p_wilcoxon`, `p_wilcoxon_level`, `p_wilcoxon_fact`, `n_wilcoxon`, `mean_abs_diff` next to
 the earlier columns; in a mock run every row also carries `mock_scores`.
@@ -419,3 +453,138 @@ Tests: `$HOME/.cache/ctx_cpu_venv/bin/python -m pytest contextualization/tests/t
 (historical tests skip when the v1 probe files are not under `~/.cache/ctx_wandb_to_hf/ctx_experiment_build/v1`;
 the regression tests for findings 6, 7, 8, 17 and 18 rebuild the review's reproductions on
 small v2 pools).
+
+## Replicated analysis (review 2026-11-11)
+
+Review of the funded runs with two complete seeds and a third in progress
+(`reviews/2026-11-07-seed1-results/` is the single-seed write-up it started from). The numbers
+quoted below are from seeds 1 and 2 of build `ctx_v2_build1_recovered`.
+
+### Incomplete replicates (finding 3)
+
+Any sub-directory with at least one arm CSV used to be a replicate, so a queue still running
+(seed 3 with arm C only) was accepted silently: `replicates__dose_response`,
+`replicates__counterfact` and the overlay figure averaged arm C over three seeds and the other
+arms over two (X - C read off those tables was off by about 0.06, the size of the X-vs-E
+question). Now the analysis stops and names the replicates and their missing arms. With
+`--allow-incomplete-replicates` an incomplete replicate is analysed on its own (sections 1-5),
+is excluded from every cross-replicate summary and figure, and contributes only to the
+same-arm noise floor.
+
+### Exposure index per data seed (finding 10)
+
+The prepacked rows are the same for every data seed; the row ORDER, the step of every
+occurrence and the rows repeated after the epoch boundary are not. The exposure index was
+bound by `prepack_dataset_id` only, so the last seed's index (the one left in `exposure/`, and
+on the Hub's `main`) was accepted for every replicate. `bind_exposure` now binds a replicate to
+the index whose `PREFLIGHT_OK.json` is the file its checkpoints recorded
+(`bindings.preflight_sha256`; status `exact`), else to an index with the same dataset id AND
+the same recorded data seed (`equivalent`, with a warning: a regenerated preflight), else --
+for metas without those fields -- by dataset id as before (`dataset_id`); an index for another
+dataset or another data seed is a violation. `--exposure-dir` may hold one index per seed;
+`run_remaining_full_seeds.sh` keeps them under `<build>/exposure_by_seed/seed_<S>/` (pod only:
+the Hub build folder has only the last seed's index on `main`, earlier seeds by commit). The
+arms of a replicate must resolve to one index; the `compatibility` table shows the status.
+
+### Cross-replicate inference (finding 1) -- section 6
+
+* 6a `replicates__paired`: `per_replicate` lists every replicate's within-run mean;
+  `t95_lo/hi` is the t interval of their mean with S-1 df (`ctx.stats.replicate_interval`).
+  The training run is the unit; the interval is for THIS fact set (the replicates share their
+  facts).
+* 6b `replicates__crossed`: per contrast the semantic-groups x replicates matrix of paired
+  differences. `facts_ci95_*` = cluster bootstrap of the replicate-averaged differences
+  (replicates fixed). `var_unit`, `var_replicate`, `var_residual` = ANOVA components
+  (truncated at 0); `se_crossed` = sqrt(var_unit/U + var_replicate/S + var_residual/(U S)),
+  `crossed_ci95_*` its Satterthwaite t interval (`ctx.stats.crossed_summary`). `p_rep` (F =
+  MS_replicate / MS_residual) asks whether the replicate means differ by more than fact-level
+  noise explains. On seeds 1-2: R - C neutral 9.04 vs 10.21, `p_rep` 6e-14 (the within-run
+  interval [8.57, 9.48] of seed 1 excludes seed 2's value); X - C 0.68 vs 0.64, `p_rep` 0.63;
+  X - E 0.02 vs -0.12, `p_rep` 0.14.
+* How to read the three intervals. Simulated coverage of a nominal 95% interval for the
+  population mean (facts and runs redrawn; 200 units; run-level SD of 0 / 0.1 / 0.27 unit SDs):
+  crossed 0.97 / 0.94 / 0.89 with S = 2 and 0.97 / 0.94 / 0.93 with S = 3; replicate t interval
+  0.90 / 0.94 / 0.95 and 0.84 / 0.90 / 0.94. So where `p_rep` is small the replicate interval
+  is the appropriate one; where it is not, the facts / crossed interval is, and the replicate
+  interval (which leaves out the sampling of facts) under-covers. Neither is a substitute for
+  more seeds: with S = 3 only effects several run-level SDs from zero are settled.
+* The bootstrap stream of a per-replicate interval contains the replicate name, so the same
+  CSVs give slightly different interval digits as `rep0` and as `seed_1`.
+
+### Noise floor (finding 2) -- section 6c, `replicates__same_arm_noise`
+
+`mean_abs_diff` and `n_pref_flips` between two arms were reported without a reference. The
+table compares the SAME arm between two training runs (`same_arm_across_replicates`) with two
+arms of one run (`different_arms_same_replicate`). On seeds 1-2, neutral cloze, injected facts:
+C vs C across seeds mean |d| 1.95-2.06 and 334-367 of 1750 preference flips; X vs E within a
+seed 1.87-1.88 and 331-343. The single-seed statement that "X and E differ on individual facts"
+therefore describes re-training noise; so does the CounterFact reversal count. The matched
+init / data seeds of a replicate do not lower this floor. Only mean differences carry the arm
+effect. An incomplete replicate contributes the arms it has.
+
+### Heterogeneity (findings 4 and 9)
+
+* 2b `by_relation__...`: every contrast within each relation (headline cohort, neutral
+  cloze), with `n_values` = distinct injected values (few = closed vocabulary). On seeds 1-2
+  R - C runs from +2.6 (animal class, 6 values) to +16 (landmark city, unique invented names)
+  and X - C / E - C from 0.0 to +2.1: the pooled contrast mixes scales.
+* 4c `verbatim_items__...`: 723 of the 3500 neutral-cloze items of the funded build are
+  claim sentences arm R was trained on verbatim (template 0 or 1). R - C is 15.5 / 16.5 on
+  those and 7.3 / 8.6 on the other items (9.0 / 10.2 pooled); X - C and E - C move by at most
+  0.04. The subsets are stored as passes `cloze_neutral@verbatim_trained_items` and
+  `cloze_neutral@not_verbatim_items` (column `subset`) in the cross-replicate tables.
+
+### Supplementary probes -- section 5b
+
+`eval_beliefs.py --supplement` scores two more passes on an existing checkpoint into
+`supp_beliefs_arm<A>.csv` (its own meta: `kind: supplement`, `probe_construction:
+supplement_v1`). The main evaluation is neither re-scored nor changed, so the experiment-wide
+contract of the main CSVs (one `probe_construction`, one item set) still holds.
+
+* `wrong_subject`: the fact's injected value against its rival in the neutral cloze of other
+  subjects of the same relation, drawn from wholly held-out groups (never trained in any arm;
+  2 donors x every cloze template per fact, chosen by a generator keyed with the build seed and
+  the fact id, so identical in every arm, replicate and re-run; `donor_fact_id` column). A
+  shift there cannot be a belief about the fact's subject: the injected value string was seen
+  `dose` times in every intervention arm and the rival never, in any context. Section 5b
+  reports the pass, `subject_specific` = neutral - wrong_subject per fact, the decomposition
+  `supp_decomposition__<cohort>` (neutral shift = wrong-subject part + subject-specific part,
+  by dose, labels pooled) and both parts within each relation.
+* `wrapper_conditional_E`: the fact's occurrence-0 arm-E training frame cut at the value,
+  scored in every arm; the counterpart of `wrapper_conditional` (arm X's wrapper in every arm).
+  `supp_own_frame__<cohort>` compares the two wrapped arms each under its own trained context:
+  (X - C under the X wrapper) - (E - C under the E frame) per fact. The E frames of a
+  token-matched build can only be reproduced with the training tokenizer (1112 of 1750 match
+  without it on the funded build, 1750 of 1750 with it), so the evaluator verifies every frame
+  against the manifest's arm-E occurrence-0 `insert_text` and stops on a mismatch
+  (`--manifest`, `--skip-manifest-check` records an unverified run).
+
+Contract (`check_supplement`, saved under `supplement` in `compatibility.json`): in a replicate
+that has any supplementary file every arm has one; each scored the same checkpoint as the main
+evaluation of its arm (`model_sha256`, else `init_param_sha256` + step), in the same mode, with
+the same tokenizer and probe files; one supplement version and one identity per scored item
+across all files; unverified arm-E frames of a model-inference run are a warning. Violations
+stop the analysis; `--no-supplement` analyses the main evaluations only. A replicate without
+supplementary files simply has no section 5b. The supplementary passes enter the
+cross-replicate tables as passes `wrong_subject`, `subject_specific`, `wrapper_conditional_E`
+and `own_frame`. Archive: same Hub branch `eval/wandb-<run_id>` as the main evaluation, tag
+`wandb-<run_id>-eval-supp`; wandb summary keys `belief_supp/*`.
+
+Scoring every finished checkpoint on the training box (after the queue has finished; the
+script takes the queue's lock and refuses while training runs):
+
+```
+bash contextualization/run_supplement_eval.sh              # seeds 1 2 3, arms C R X E
+```
+
+### Not changed (training-side findings, code frozen while the queue runs)
+
+Resume does not compare learning-rate / architecture flags with the checkpoint
+(`scripts/base_train.py: SCHEDULE_KEYS`); the preflight's `loss_weighting` block still labels
+the objective `per_microbatch_mean` under `fixed_nominal` (`ctx/prepack.py`); the prepacked
+loader reuses one pinned host buffer under a non-blocking copy (`nanochat/dataloader.py`; the
+per-step supervised-token counts logged to wandb match the scheduled cross-arm differences at
+the logged steps of the nine finished runs, so no systematic skip, but the exact check needs
+the per-step logs on the training box); arm E's source-cue detector cannot see its
+"A note on <year> ... adds that" frames (`ctx/templates.py`). These are for after the queue.
+

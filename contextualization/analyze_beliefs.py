@@ -29,7 +29,8 @@ Per-fact belief
 Cohorts (ctx/cohorts.py; each saved to analysis_v2/cohorts/<name>.json with ids, denominators,
 exclusions, missingness): all_injected, rival_untrained, exclusive_value, heldout_claims,
 heldout_groups (one orientation per wholly held-out group; 2026-10-14 finding 8),
-heldout_groups_both (raw two-record view; signed means cancel by construction), heldout_rivals,
+heldout_groups_both (raw two-record view; signed means cancel by construction), heldout_rivals
+(v2: exact mirrors of the injected probes, flagged and excluded from heldout_claims),
 counterfact, paraphrase_wellformed (CSV-aware), paraphrase_historical_reference. Every table,
 test and figure names its cohort and denominators (finding 10).
 
@@ -40,7 +41,19 @@ differences whenever a semantic group contributes more than one fact, `p_wilcoxo
 semantic groups, Holm within one family = one (contrast, cohort, pass, metric) table
 (finding 11). Equivalence is claimed only under --equivalence-margin (TOST with the 90%
 bootstrap CI). Training-run uncertainty comes only from replicates (seed_*/ or rep*/
-subdirectories), summarized as mean and SD across runs; facts are never pooled across replicates.
+subdirectories); facts are never pooled across replicates as independent observations.
+
+Replicated runs (review 2026-11-11; docs/ANALYSIS.md, last section). Section 6 reports, over the
+COMPLETE replicates: every replicate's value and the replicate-level t interval
+(replicates__paired), the facts x replicates variance components with a combined interval and a
+test for run-level variance (replicates__crossed), and the noise floor -- the same arm in two
+runs versus two arms in one run (replicates__same_arm_noise). A replicate that lacks an arm
+another has stops the run unless --allow-incomplete-replicates (it is then analysed on its own
+and kept out of every cross-replicate summary). --exposure-dir may hold one exposure index per
+data seed; every replicate is bound to the index of its own run. Section 2b splits every
+contrast by relation, 4c by verbatim-trained cloze items (every template), and section 5b
+analyses the supplementary evaluations (supp_beliefs_arm<A>.csv from eval_beliefs.py
+--supplement: the wrong-subject control and arm E under its own frame) when present.
 
 Memorization (finding 12): template-0 probes are joined to the forms actually rendered at the
 assigned dose (ctx.cohorts.realized_training_forms; manifest/exposure aware) and the
@@ -56,9 +69,10 @@ cohorts/*.json, figures/*.png}. The legacy analysis.txt and beliefs_dose_respons
 Usage (from contextualization/):
   python analyze_beliefs.py --eval-dir <exp>/eval [--probe-dir <exp>/probe_sets]
       [--build-summary <exp>/build_summary.json] [--manifest <exp>/manifest.csv[.gz]]
-      [--exposure-dir <exp>/exposure] [--cohort NAME ...] [--plot] [--bootstrap N]
+      [--exposure-dir <exp>/exposure | <exp>/exposure_by_seed] [--cohort NAME ...] [--plot] [--bootstrap N]
       [--equivalence-margin M] [--seed S] [--exclude-facts ids.txt] [--no-tracking]
       [--compat strict|legacy|historical-builds [--compat-reason "..."]] [--allow-incomplete]
+      [--allow-incomplete-replicates] [--no-supplement]
 """
 
 from __future__ import annotations
@@ -88,6 +102,7 @@ CONTRASTS = (("R", "C"), ("X", "C"), ("R", "X"), ("R", "E"), ("E", "C"), ("X", "
 ATTRIBUTED_PASSES = ("cloze_attributed", "cloze_attributed_fixedsource")
 PARAPHRASE_PASS = "heldout_paraphrase"
 LABEL_ORDER = ("true", "false", "contested", "unknown")
+LABEL_POOLED_DOSE = "pooled"     # dose marker of a paired row that pools the doses of ONE label
 ARM_COLORS = {"C": "#2a78d6", "R": "#eb6834", "X": "#1baf7a", "E": "#eda100"}   # fixed categorical slots
 NO_EQUIVALENCE_NOTE = ("No equivalence claim is made from any non-significant difference: without "
                        "--equivalence-margin M no TOST is run, and 'not significant' is not 'equal'.")
@@ -105,6 +120,8 @@ IDENTITY_COLUMNS = ("context", "cand_value", "cand_competing", "value_span_chars
 CONTRACT_KEYS = ("mode", "tokenizer_sha256", "scoring_policy", "protocol", "probe_construction")   # one value per analysis
 HORIZON_KEYS = ("step", "total_batch_size", "num_iterations", "max_seq_len")   # the matched training budget
 UNRECORDED_LOSS_NORMALIZATION = "microbatch_mean (unrecorded: historical default)"   # an absent key never implies the new policy
+SUPPLEMENT_PREFIX = "supp_"                 # supp_beliefs_arm<A>.csv: eval_beliefs.py --supplement (review 2026-11-11)
+SUPPLEMENT_PASSES = ("wrong_subject", "wrapper_conditional_E")
 MOCK_BANNER = ("MOCK SCORES: every arm CSV was produced by eval_beliefs.py --dry-run (mode dry_run_mock_scores). "
                "Every table row carries mock_scores = MOCK and every figure title says MOCK; nothing in this "
                "report measures a trained model.")
@@ -204,6 +221,98 @@ def load_replicate(rep_dir, exclude=frozenset()):
         if os.path.exists(p):
             arms[arm] = load_arm_csv(p, exclude)
     return arms
+
+
+def load_supplement(rep_dir, arms, exclude=frozenset()):
+    """{arm: load_arm_csv(supp_beliefs_arm<A>.csv)} for the arms of a replicate that have a supplementary evaluation."""
+    out = {}
+    for arm in arms:
+        p = os.path.join(rep_dir, f"{SUPPLEMENT_PREFIX}beliefs_arm{arm}.csv")
+        if os.path.exists(p):
+            out[arm] = load_arm_csv(p, exclude)
+    return out
+
+
+def check_supplement(loaded, supp_loaded, compat, inputs):
+    """The contract of the supplementary evaluations (eval_beliefs.py --supplement) against the main ones.
+
+    Per replicate that has any: every arm of the replicate has one; each CSV has a meta of kind "supplement" whose
+    csv_sha256 is the file's; it scored THE SAME checkpoint as the replicate's main evaluation of that arm
+    (model_sha256, else init_param_sha256 + step), in the same mode, with the same tokenizer, on the analysis' probe
+    files. Across all of them: one supplement version and one identity per scored item. A model-inference supplement
+    whose arm-E frames were not verified against the manifest is a warning. -> {"ok", "violations", "warnings",
+    "replicates", "version"}."""
+    violations, warnings, reps, versions, ident, item_viol = [], [], {}, defaultdict(list), {}, []
+    for rep, _, arms_raw in loaded:
+        sup = supp_loaded.get(rep)
+        if not sup:
+            continue
+        missing = [a for a in sorted(arms_raw) if a not in sup]
+        if missing:
+            violations.append(f"{rep}: supplementary evaluation missing for arm(s) {', '.join(missing)} (present: "
+                              f"{', '.join(sorted(sup))}): score them with eval_beliefs.py --supplement or pass --no-supplement")
+        reps[rep] = {}
+        for arm, a in sorted(sup.items()):
+            m = a["meta"]
+            main = (compat["replicates"].get(rep) or {}).get(arm) or {}
+            info = {"csv": a["path"], "n_rows": a["n_rows"], "meta_present": m is not None}
+            reps[rep][arm] = info
+            if m is None:
+                violations.append(f"{rep}/{arm}: no .meta.json next to {os.path.basename(a['path'])}")
+                continue
+            ck = m.get("checkpoint") or {}
+            sp = m.get("supplement") or {}
+            info.update({"mode": m.get("mode"), "version": sp.get("version"), "passes": sp.get("passes"), "n_donors": sp.get("n_donors"),
+                         "manifest_check": sp.get("manifest_check"), "model_sha256": ck.get("model_sha256")})
+            if m.get("kind") != "supplement" or not sp.get("version"):
+                violations.append(f"{rep}/{arm}: {os.path.basename(a['path'])} is not a supplementary evaluation (meta kind "
+                                  f"{m.get('kind')!r}): a main evaluation must be named beliefs_arm<ARM>.csv")
+                continue
+            versions[(sp.get("version"), m.get("probe_construction"), sp.get("n_donors"))].append(f"{rep}/{arm}")
+            if m.get("csv_sha256") != a["sha256"]:
+                violations.append(f"{rep}/{arm}: supplement csv_sha256 in meta != sha256 of the file")
+            if m.get("arm") not in (None, arm):
+                violations.append(f"{rep}/{arm}: supplement meta says arm {m.get('arm')!r}")
+            if main.get("mode") and m.get("mode") != main["mode"]:
+                violations.append(f"{rep}/{arm}: supplement mode {m.get('mode')!r} but the main evaluation is {main['mode']!r}")
+            tok = _get(m, "tokenizer", "tokenizer_sha256")
+            if main.get("tokenizer_sha256") and tok and tok != main["tokenizer_sha256"]:
+                violations.append(f"{rep}/{arm}: supplement tokenizer {tok[:12]} != main evaluation {main['tokenizer_sha256'][:12]}")
+            for k, want in (inputs.get("probe_hashes") or {}).items():
+                have = (m.get("input_hashes") or {}).get(k)
+                if have and want and have != want:
+                    violations.append(f"{rep}/{arm}: supplement scored {k} {have[:12]}, the analysis uses {want[:12]}")
+            mck = main.get("checkpoint") or {}
+            if mck.get("model_sha256") and ck.get("model_sha256"):
+                if mck["model_sha256"] != ck["model_sha256"]:
+                    violations.append(f"{rep}/{arm}: the supplement scored checkpoint {str(ck['model_sha256'])[:12]} but the main "
+                                      f"evaluation scored {str(mck['model_sha256'])[:12]}: not the same model")
+            else:
+                for k in ("init_param_sha256", "step"):
+                    if mck.get(k) is not None and ck.get(k) is not None and str(mck[k]) != str(ck[k]):
+                        violations.append(f"{rep}/{arm}: supplement checkpoint.{k} {str(ck[k])[:12]} != main evaluation {str(mck[k])[:12]}")
+                if m.get("mode") == "model_inference":
+                    warnings.append(f"{rep}/{arm}: no model_sha256 on both sides; the supplement is tied to the main evaluation "
+                                    "by init_param_sha256 + step only")
+            mc = sp.get("manifest_check") or {}
+            if m.get("mode") == "model_inference" and "wrapper_conditional_E" in (sp.get("passes") or []) \
+                    and not (mc.get("checked") and not mc.get("n_mismatch") and not mc.get("n_missing")):
+                warnings.append(f"{rep}/{arm}: the arm-E frames of the supplement were not verified against the build manifest "
+                                f"({mc.get('reason') or mc}): wrapper_conditional_E may not be the training text")
+            if a.get("has_identity"):
+                for key, facts in a["data"].items():
+                    for fid, f in facts.items():
+                        for ti, t in f["templates"].items():
+                            k = (key[0], key[1], fid, ti)
+                            if ident.setdefault(k, (t["identity"], f"{rep}/{arm}"))[0] != t["identity"]:
+                                item_viol.append(f"{rep}/{arm}: supplementary item {key[1]}/{fid}/t{ti} differs from {ident[k][1]} "
+                                                 "(another donor selection or frame rendering)")
+    if len(versions) > 1:
+        violations.append(f"supplement version / construction / donors differ across evaluations "
+                          f"{ {str(k): v for k, v in versions.items()} }")
+    violations += item_viol[:5] + ([f"... {len(item_viol) - 5} more supplementary item mismatches"] if len(item_viol) > 5 else [])
+    return {"ok": not violations, "violations": violations, "warnings": warnings, "replicates": reps,
+            "version": next(iter(versions))[0] if len(versions) == 1 else None, "n_items": len(ident)}
 
 
 def metric_for_pass(pass_):
@@ -353,15 +462,122 @@ def analysis_inputs(probes, summary_path, manifest_path=None, exposure_dir=None)
         if marker:
             out["marker_manifest_sha256"] = marker.get("manifest_sha256")
             out["marker_probe_hashes"] = marker.get("probe_hashes")
-    if exposure_dir and os.path.isdir(exposure_dir):
-        for name in ("PREFLIGHT_OK.json", "cross_arm.json"):
-            pf = _load_json(os.path.join(exposure_dir, name))
-            if pf and isinstance(pf.get("prepack_dataset_id"), dict):
-                out["exposure_preflight_path"] = os.path.join(os.path.abspath(exposure_dir), name)
-                out["exposure_prepack_dataset_id"] = dict(pf["prepack_dataset_id"])
-                out["exposure_build_summary_sha256"] = pf.get("build_summary_sha256")
-                out["exposure_manifest_sha256"] = pf.get("manifest_sha256")
-                break
+    # one exposure index per data seed (review 2026-11-11 finding 10): --exposure-dir is either ONE index
+    # (PREFLIGHT_OK.json next to <arm>/occurrence_exposure.csv) or a directory of them (exposure_by_seed/seed_<S>/)
+    out["exposure_candidates"] = exposure_candidates(exposure_dir)
+    if out["exposure_candidates"]:
+        first = out["exposure_candidates"][0]     # the single-index keys describe the first index (reporting only)
+        out["exposure_preflight_path"] = first["preflight_path"]
+        out["exposure_prepack_dataset_id"] = dict(first["prepack_dataset_id"])
+        out["exposure_build_summary_sha256"] = first["build_summary_sha256"]
+        out["exposure_manifest_sha256"] = first["manifest_sha256"]
+    return out
+
+
+EXPOSURE_ID_FILES = ("PREFLIGHT_OK.json", "cross_arm.json")
+EXPOSURE_SCHEDULE_KEYS = ("B", "T", "grad_accum_steps", "num_iterations", "world_size", "loss_normalization")
+
+
+def _exposure_identity(d):
+    """Identity of ONE exposure index directory, from its PREFLIGHT_OK.json (preferred) or cross_arm.json: the
+    prepacked dataset id per arm, the data seed the schedule was measured for, the build summary / manifest hashes
+    and, for a preflight, the sha256 of the file itself (what a checkpoint records as bindings.preflight_sha256).
+    None when the directory carries no such file."""
+    for name in EXPOSURE_ID_FILES:
+        path = os.path.join(d, name)
+        if not os.path.exists(path):
+            continue
+        pf = _load_json(path)
+        if pf and isinstance(pf.get("prepack_dataset_id"), dict):
+            cfg = pf.get("config") if isinstance(pf.get("config"), dict) else {}
+            return {"dir": os.path.abspath(d), "preflight_path": os.path.abspath(path),
+                    "preflight_sha256": sha256_file(path) if name == "PREFLIGHT_OK.json" else None,
+                    "data_seed": pf.get("data_seed", cfg.get("data_seed")),
+                    "prepack_dataset_id": dict(pf["prepack_dataset_id"]),
+                    "build_summary_sha256": pf.get("build_summary_sha256"), "manifest_sha256": pf.get("manifest_sha256"),
+                    "schedule": {k: pf.get(k) for k in EXPOSURE_SCHEDULE_KEYS if pf.get(k) is not None}}
+    return None
+
+
+def exposure_candidates(exposure_dir):
+    """The exposure indexes under ``exposure_dir``: the directory itself when it is one, else every sub-directory
+    (up to two levels: exposure_by_seed/seed_<S>/ and .../seed_<S>_snapshot_*/exposure/) that is one, without
+    duplicates of the same preflight file."""
+    if not exposure_dir or not os.path.isdir(exposure_dir):
+        return []
+    own = _exposure_identity(exposure_dir)
+    if own:
+        return [own]
+    out, seen = [], set()
+    for pattern in ("*", os.path.join("*", "*")):
+        for d in sorted(glob.glob(os.path.join(exposure_dir, pattern))):
+            if not os.path.isdir(d):
+                continue
+            c = _exposure_identity(d)
+            if c is None:
+                continue
+            key = c["preflight_sha256"] or c["dir"]
+            if key not in seen:
+                seen.add(key)
+                out.append(c)
+    return out
+
+
+def bind_exposure(cands, arm, bindings, ckpt):
+    """Which exposure index describes the run that produced a checkpoint? -> {"candidate", "status", "message"}.
+
+    ``status``: "exact" (the index's PREFLIGHT_OK.json is byte-identical to the one the checkpoint recorded:
+    bindings.preflight_sha256), "equivalent" (another file, same prepacked dataset AND same recorded data seed:
+    accepted with a warning), "dataset_id" (the checkpoint or the index records no preflight hash / data seed; the
+    prepacked dataset id of the arm matches -- the pre-2026-11 rule, with a warning when the seed is unverifiable),
+    "mismatch" (an index names this arm but none is this run's: another dataset, or another data seed -- the row
+    order, the step of every occurrence and the rows repeated after the epoch boundary depend on the data seed),
+    "unbound" (nothing to compare) and "none" (no index given)."""
+    out = {"candidate": None, "status": "none", "message": None}
+    if not cands:
+        return out
+    want_sha, want_id, want_seed = bindings.get("preflight_sha256"), bindings.get("prepack_dataset_id"), ckpt.get("data_seed")
+    if want_sha:
+        for c in cands:
+            if c.get("preflight_sha256") == want_sha:
+                return {"candidate": c, "status": "exact", "message": None}
+    with_id = [c for c in cands if (c.get("prepack_dataset_id") or {}).get(arm)]
+    if not with_id or not want_id:
+        out["status"] = "unbound"
+        return out
+    same_id = [c for c in with_id if c["prepack_dataset_id"][arm] == want_id]
+    if not same_id:
+        c = with_id[0]
+        out.update(status="mismatch", message=(
+            f"the exposure index ({c.get('preflight_path')}) describes prepacked dataset {str(c['prepack_dataset_id'][arm])[:12]} "
+            f"but the checkpoint was trained on {str(want_id)[:12]}"))
+        return out
+    known = [c for c in same_id if c.get("data_seed") is not None and want_seed is not None]
+    agree = [c for c in known if str(c["data_seed"]) == str(want_seed)]
+    if agree:
+        c = agree[0]
+        if want_sha and c.get("preflight_sha256"):
+            return {"candidate": c, "status": "equivalent", "message": (
+                f"exposure index {c['preflight_path']} (sha256 {c['preflight_sha256'][:12]}) is not the preflight file the "
+                f"checkpoint recorded ({str(want_sha)[:12]}) but describes the same prepacked dataset and data seed {want_seed}: "
+                "accepted as equivalent")}
+        return {"candidate": c, "status": "dataset_id", "message": None}
+    unknown = [c for c in same_id if c not in known]
+    if unknown:
+        c = unknown[0]
+        msg = None
+        if want_sha:
+            msg = (f"exposure index {c.get('preflight_path')} names the checkpoint's prepacked dataset but its data seed is "
+                   f"unrecorded{'' if want_seed is not None else ' (and so is the checkpoint data seed)'}: the row schedule "
+                   "(steps, repeated rows) is unverified for this run")
+        return {"candidate": c, "status": "dataset_id", "message": msg}
+    seeds = sorted({str(c["data_seed"]) for c in known})
+    out.update(status="mismatch", message=(
+        f"the exposure index under {os.path.dirname(known[0]['preflight_path']) if len(known) == 1 else 'the given --exposure-dir'} "
+        f"was measured for data seed {', '.join(seeds)} but the checkpoint was trained with data seed {want_seed}"
+        + (f" (preflight {str(want_sha)[:12]})" if want_sha else "")
+        + ": the row order, the step of every occurrence and the rows repeated after the epoch boundary depend on the data "
+          "seed; pass this run's index (--exposure-dir may hold one sub-directory per seed, e.g. exposure_by_seed/)"))
     return out
 
 
@@ -500,21 +716,33 @@ def check_compatibility(loaded, compat="strict", compat_reason=None, inputs=None
                         msg = f"{rep}/{arm}: the checkpoint was trained with {k} {bp[:12]} but the analysis uses {want_p[:12]}"
                         (warnings if s["build_mismatch_allowed"] or compat == "historical-builds" else violations).append(
                             msg + (" (declared: --allow-build-mismatch at evaluation)" if s["build_mismatch_allowed"] else ""))
-                ex_ids = inputs.get("exposure_prepack_dataset_id") or {}
-                if ex_ids.get(arm) and b.get("prepack_dataset_id"):
-                    if ex_ids[arm] != b["prepack_dataset_id"]:
-                        violations.append(f"{rep}/{arm}: the exposure index ({inputs.get('exposure_preflight_path')}) describes prepacked "
-                                          f"dataset {str(ex_ids[arm])[:12]} but the checkpoint was trained on {str(b['prepack_dataset_id'])[:12]}")
-                        bound.append(False)
-                    else:
-                        bound.append(True)
-                elif inputs.get("exposure_dir") and (not ex_ids or not b.get("prepack_dataset_id")):
+                # the exposure index of THIS run (review 2026-11-11 finding 10): bound by the preflight file the
+                # checkpoint recorded, else by prepacked dataset id AND data seed; one index per replicate
+                cands = inputs.get("exposure_candidates")
+                if cands is None:      # a caller that passes only the single-index keys
+                    ex_ids = inputs.get("exposure_prepack_dataset_id") or {}
+                    cands = [{"dir": inputs.get("exposure_dir"), "preflight_path": inputs.get("exposure_preflight_path"),
+                              "preflight_sha256": None, "data_seed": None, "prepack_dataset_id": dict(ex_ids)}] if ex_ids else []
+                eb = bind_exposure(cands, arm, b, s["checkpoint"])
+                s["exposure_dir"], s["exposure_binding"] = (eb["candidate"] or {}).get("dir"), eb["status"]
+                if eb["status"] == "mismatch":
+                    violations.append(f"{rep}/{arm}: {eb['message']}")
+                    bound.append(False)
+                elif eb["status"] in ("exact", "equivalent", "dataset_id"):
+                    if eb["message"]:
+                        warnings.append(f"{rep}/{arm}: {eb['message']}")
+                    bound.append(True)
+                elif inputs.get("exposure_dir"):
                     warnings.append(f"{rep}/{arm}: exposure inputs are unbound (no PREFLIGHT_OK.json/cross_arm.json dataset id for "
                                     f"this arm or no prepack_dataset_id in the checkpoint bindings): memorization classifications "
                                     f"from {inputs['exposure_dir']} are not verified against the checkpoint")
                 s["inputs_bound"] = all(bound) if bound else None
             summ[arm] = s
         reps[rep] = summ
+        ex_dirs = sorted({s.get("exposure_dir") for s in summ.values() if s.get("exposure_dir")})
+        if len(ex_dirs) > 1:
+            violations.append(f"{rep}: the arms resolve to different exposure indexes {ex_dirs}: the arms of one replicate "
+                              "share one data seed, hence one index")
         with_meta = {arm: s for arm, s in summ.items() if s["meta_present"]}
         schemas = {arm: s["schema"] for arm, s in summ.items()}
         if len(set(schemas.values())) > 1:
@@ -773,11 +1001,12 @@ def write_csv(path, rows):
 # the analysis
 
 class Analysis:
-    def __init__(self, args, probes, cohorts, selected, headline, protocol_cfg, exposure, manifest, report,
-                 out_dir=None, schema_v2=False):
+    def __init__(self, args, probes, cohorts, selected, headline, protocol_cfg, exposure_by_rep, manifest, report,
+                 out_dir=None, schema_v2=False, incomplete=None):
         self.args, self.probes, self.cohorts = args, probes, cohorts
         self.selected, self.headline, self.protocol_cfg = selected, headline, protocol_cfg
-        self.exposure, self.manifest, self.R = exposure, manifest, report
+        self.exposure_by_rep, self.manifest, self.R = dict(exposure_by_rep or {}), manifest, report
+        self.incomplete = dict(incomplete or {})    # replicate -> missing arms (review 2026-11-11 finding 3)
         self.n_boot, self.seed, self.margin = args.bootstrap, args.seed, args.equivalence_margin
         self.out_dir, self.schema_v2 = out_dir, bool(schema_v2)
         self.allow_incomplete = bool(getattr(args, "allow_incomplete", False))
@@ -793,6 +1022,14 @@ class Analysis:
         if cname in ("heldout_groups", "heldout_claims"):
             return ("one record per wholly held-out group (stable orientation, finding 8): signed means, mean_abs_diff "
                     "and n_pref_flips are per group")
+        return ""
+
+    def mirror_note(self, cname):
+        """heldout_rivals rows that are exact mirrors of injected probes (review 2026-11-11 finding 6)."""
+        co = self.cohorts.get(cname)
+        if cname == "heldout_rivals" and co is not None and co.details.get("n_mirrors"):
+            return (f"{co.details['n_mirrors']} of {co.n} records are MIRRORS of injected probes (same prompts, candidates "
+                    "swapped): these rows are all_injected with the sign flipped, NOT a never-trained baseline")
         return ""
 
     # ---- helpers -------------------------------------------------------------------
@@ -893,6 +1130,15 @@ class Analysis:
         for r, a in zip(rows, adj):
             r["p_holm"] = a
             r["family_size"] = m
+        # one row per label pooled over doses (descriptive, outside the Holm family): the label-level contrast,
+        # e.g. the real-world false claims, whose dose cells hold only a handful of facts (review 2026-11-11 finding 8).
+        # dose = "pooled" (never "all": `dose == all` stays the single all-labels row every consumer selects)
+        if by_dose and len(doses) > 1 and len(labels) > 1:
+            for lab in labels:
+                row = self._paired_cell(rep, cohort, t1, t2, a1, a2, pass_, metric, tier, lab, None, LABEL_POOLED_DOSE)
+                if row is not None:
+                    row.update({"family": "", "p_holm": None, "family_size": 0})
+                    rows.append(row)
         # pooled row (all labels, all doses): descriptive, outside the Holm family
         if len(rows) != 1:
             row = self._paired_cell(rep, cohort, t1, t2, a1, a2, pass_, metric, tier, None, None, "all")
@@ -901,12 +1147,39 @@ class Analysis:
                 rows.append(row)
         return rows
 
+    def subset_rows(self, rep, cohort, fids, t1, t2, a1, a2, pass_, metric, subset, by_dose=True):
+        """Paired cells of one contrast restricted to ``fids`` (a relation, an item subset): all doses pooled and,
+        with ``by_dose``, one row per dose. Descriptive rows (no Holm family); the bootstrap stream names the subset."""
+        keep = set(fids)
+        doses = sorted({cohort.facts[f]["dose"] for f in cohort.fact_ids if f in keep})
+        rows = []
+        for d in ([None] + (doses if by_dose and len(doses) > 1 else [])):
+            diffs, groups, flips = [], [], 0
+            for fid in cohort.fact_ids:
+                if fid not in keep or (d is not None and cohort.facts[fid]["dose"] != d):
+                    continue
+                x, y = t1.get(fid), t2.get(fid)
+                if x is None or y is None:
+                    continue
+                diffs.append(x["belief"] - y["belief"])
+                groups.append(cohort.facts[fid]["group_id"])
+                flips += int((x["belief"] > 0) != (y["belief"] > 0))
+            if not diffs:
+                continue
+            dose_lbl = "all" if d is None else d
+            cell = ST.paired_cell(diffs, groups, n_boot=self.n_boot, seed=self.seed,
+                                  stream=(rep, "subset", a1, a2, cohort.name, pass_, metric, subset, dose_lbl), margin=self.margin)
+            rows.append({"replicate": rep, "contrast": f"{a1}-{a2}", "cohort": cohort.name, "pass": pass_, "metric": metric,
+                         "subset": subset, "label": "all", "dose": dose_lbl, **cell, "n_pref_flips": flips})
+        return rows
+
     # ---- per replicate -----------------------------------------------------------------
-    def run_replicate(self, rep, rep_dir, arms_raw):
+    def run_replicate(self, rep, rep_dir, arms_raw, supp_raw=None):
         R, args = self.R, self.args
         arm_names = sorted(arms_raw)
         has_answer_only = any(a["has_answer_only"] for a in arms_raw.values())
-        store = self.per_rep.setdefault(rep, {"paired": {}, "dose": {}, "cf": {}, "arms": arm_names})
+        store = self.per_rep.setdefault(rep, {"paired": {}, "dose": {}, "cf": {}, "arms": arm_names, "beliefs": {}})
+        exposure = self.exposure_by_rep.get(rep) or {}
         R.say(f"\n# Replicate `{rep}` ({rep_dir})\n")
         R.say("| arm | csv | rows | unscored rows | schema | answer_only columns |")
         R.say("|---|---|---|---|---|---|")
@@ -1084,9 +1357,11 @@ class Analysis:
                     rows = self.arm_mean_rows(rep, co, arms_t, pa, metric, pooled=True)
                     keep_dose(rows)
                     R.table(f"heldout_baseline__{cname}__{pa}__{metric}", rows, cname,
-                            note="never-injected facts: the per-arm baseline of the belief contrast"
+                            note=("never-injected facts: the per-arm baseline of the belief contrast" if not self.mirror_note(cname)
+                                  else self.mirror_note(cname))
                                  + (f"; {self.cohort_note(cname)}" if self.cohort_note(cname) else ""),
-                            show=(pa == "cloze_neutral" and metric == "answer_plus_suffix" and cname != "heldout_groups_both"),
+                            show=(pa == "cloze_neutral" and metric == "answer_plus_suffix" and cname != "heldout_groups_both"
+                                  and not self.mirror_note(cname)),
                             show_cols=["label", "arm", "n", "n_groups", "mean_belief", "ci95_lo", "ci95_hi", "sd_belief",
                                        "mean_logp_value", "mean_logp_competing"])
 
@@ -1123,6 +1398,13 @@ class Analysis:
                 jobs.append((cname, "injected", PARAPHRASE_PASS, "full_sentence", True, None))
         for cname, ps, pa, metric, by_dose, tier in jobs:
             co = self.cohorts[cname]
+            if tier is None:
+                # per-fact beliefs of every arm, kept for the cross-replicate statistics of section 6 (units x replicates
+                # variance components, same-arm noise floor); never pooled across replicates here
+                bel = store["beliefs"].setdefault((cname, pa, metric), {})
+                for a in arm_names:
+                    t = tab(a, ps, pa, metric)
+                    bel[a] = {fid: t[fid]["belief"] for fid in co.fact_ids if fid in t}
             for a1, a2 in contrasts:
                 arms_t = {a: tab(a, ps, pa, metric) for a in (a1, a2)}
                 rows = self.paired_rows(rep, co, arms_t, a1, a2, pa, metric, by_dose=by_dose, tier=tier)
@@ -1135,6 +1417,9 @@ class Analysis:
                     name, note = f"paired__{a1}-{a2}__{cname}__{pa}__{metric}", f"contrast {a1}-{a2}; all entity tiers; n = facts scored in both arms"
                     if self.cohort_note(cname):
                         note += "; " + self.cohort_note(cname)
+                    if self.mirror_note(cname):
+                        note += "; " + self.mirror_note(cname)
+                        show = False     # a sign-flipped copy of the all_injected table: CSV only
                     if cname == "paraphrase_historical_reference":
                         note += "; HISTORICAL REFERENCE cohort (probe-derived legacy well-formedness), for comparison with the July-2026 numbers"
                 else:
@@ -1142,6 +1427,41 @@ class Analysis:
                     name = f"paired__{a1}-{a2}__{cname}__{pa}__{metric}__tier-{tier}"
                     note = f"contrast {a1}-{a2}; entity tier {tier} only (secondary family); n = facts scored in both arms"
                 R.table(name, rows, cname, note=note, show=show, show_cols=show_cols)
+
+        # 2b. heterogeneity by relation (review 2026-11-11 finding 9) ---------------------------
+        rel_cohorts = [c for c in dict.fromkeys([self.headline]) if c and c in self.selected]
+        if rel_cohorts and "cloze_neutral" in passes_inj:
+            R.say("### 2b. Heterogeneity by relation (headline cohort, neutral cloze)\n")
+            R.say("The pooled contrasts above average relations whose answers differ in kind (a closed vocabulary such as an "
+                  "animal class, numbers, invented names) and whose log-odds live on different scales. `n_values` = distinct "
+                  "injected values of the relation in the cohort; few values = closed vocabulary. Descriptive rows, no Holm "
+                  "family; per-dose rows are in the CSV.\n")
+            for cname in rel_cohorts:
+                co = self.cohorts[cname]
+                by_rel = defaultdict(list)
+                for fid in co.fact_ids:
+                    by_rel[str(co.facts[fid].get("relation") or "?")].append(fid)
+                for a1, a2 in contrasts:
+                    t1, t2 = tab(a1, "injected", "cloze_neutral", "answer_plus_suffix"), tab(a2, "injected", "cloze_neutral", "answer_plus_suffix")
+                    rows = []
+                    for rel in sorted(by_rel):
+                        rr = self.subset_rows(rep, co, by_rel[rel], t1, t2, a1, a2, "cloze_neutral", "answer_plus_suffix", f"relation={rel}")
+                        n_values = len({str(co.facts[f].get("value")) for f in by_rel[rel]})
+                        for r in rr:
+                            r["relation"], r["n_values"] = rel, n_values
+                            store["paired"][(r["contrast"], cname, f"cloze_neutral@relation={rel}", r["metric"], "all", "all", r["dose"])] = r
+                        rows += rr
+                    tname = f"by_relation__{a1}-{a2}__{cname}__cloze_neutral__answer_plus_suffix"
+                    R.table(tname, [r for r in rows if r["dose"] == "all"], cname,
+                            note=f"contrast {a1}-{a2} within each relation, all doses pooled (per-dose rows in the CSV)",
+                            show=(a2 == "C" or (a1, a2) == ("X", "E")),
+                            show_cols=["relation", "n_values", "n", "mean_diff", "ci95_lo", "ci95_hi", "mean_abs_diff", "n_pref_flips"])
+                    R.table(tname, [r for r in rows if r["dose"] != "all"], cname, show=False)
+                for arm in arm_names:
+                    for rel in sorted(by_rel):
+                        t = tab(arm, "injected", "cloze_neutral", "answer_plus_suffix")
+                        store["beliefs"].setdefault((cname, f"cloze_neutral@relation={rel}", "answer_plus_suffix"), {})[arm] = \
+                            {fid: t[fid]["belief"] for fid in by_rel[rel] if fid in t}
 
         # 3. attribution asymmetry -------------------------------------------------------
         R.say("## 3. Attribution asymmetry: attributed-cloze minus neutral-cloze belief, per arm\n")
@@ -1207,7 +1527,7 @@ class Analysis:
               "answer_plus_suffix, pass cloze_neutral; `mean_t0_minus_other` is the within-fact paired difference.\n")
         mem_cohorts = [c for c in dict.fromkeys([self.headline, "all_injected"]) if c and c in self.selected]
         try:
-            classes = CH.classify_verbatim_trained(self.probes.injected, self.protocol_cfg, self.exposure, self.manifest)
+            classes = CH.classify_verbatim_trained(self.probes.injected, self.protocol_cfg, exposure, self.manifest)
         except ProtocolError as e:
             classes = None
             R.say(f"NOT COMPUTABLE: {e}\n")
@@ -1216,7 +1536,9 @@ class Analysis:
                 co = self.cohorts[cname]
                 rows = []
                 for arm in arm_names:
-                    src = arm if arm in classes else "nominal"
+                    # an intervention arm's own exposure index when given; the control arm renders no claim, so its rows
+                    # use the nominal classification (docs/ANALYSIS.md)
+                    src = arm if (arm in classes and arm not in CH.CONTROL_ARMS) else "nominal"
                     t0 = tab(arm, "injected", "cloze_neutral", "answer_plus_suffix", lambda ti: ti == 0, "t0")
                     other = tab(arm, "injected", "cloze_neutral", "answer_plus_suffix", lambda ti: ti != 0, "other")
                     for sub, want in (("verbatim_trained", True), ("not_verbatim_trained", False)):
@@ -1238,6 +1560,56 @@ class Analysis:
                                    "mean_other_templates", "mean_t0_minus_other", "ci95_lo", "ci95_hi"])
                 co.details.setdefault("verbatim_trained", {})["nominal"] = n_vt
 
+        # 4c. every cloze item, not only template 0 (review 2026-11-11 finding 4) ----------------
+        R.say("### 4c. Verbatim-trained cloze ITEMS: every template (review 2026-11-11 finding 4)\n")
+        R.say("An item (fact, cloze template) is `verbatim_trained` when the template with the blank filled is a claim "
+              "sentence rendered for the fact at its assigned dose -- for template 0 as in 4b, but also for every other "
+              "template (in v2 pools template 1 equals a trained frame for some relations, so the template-0 split of 4b "
+              "mixes the two groups). The claim sentence of a slot is the same in every intervention arm, so the split is "
+              "ONE item partition shared by all arms. Contrasts are per fact over its items in the subset; "
+              "`not_verbatim_items` is the contrast free of verbatim recall of the probe sentence.\n")
+        try:
+            item_classes = CH.classify_verbatim_items(self.probes.injected, self.protocol_cfg, None, self.manifest)["nominal"]
+        except ProtocolError as e:
+            item_classes = None
+            R.say(f"NOT COMPUTABLE: {e}\n")
+        if item_classes and "cloze_neutral" in passes_inj:
+            ci_neutral = common["answer_plus_suffix"].get(("injected", "cloze_neutral"), {}).get("common", {})
+            subsets = {"verbatim_trained_items": {}, "not_verbatim_items": {}}
+            for fid, tis in ci_neutral.items():
+                flags = item_classes.get(fid) or {}
+                yes = {ti for ti in tis if flags.get(ti) is True}
+                no = {ti for ti in tis if flags.get(ti) is False}
+                if yes:
+                    subsets["verbatim_trained_items"][fid] = yes
+                if no:
+                    subsets["not_verbatim_items"][fid] = no
+            for cname in mem_cohorts:
+                co = self.cohorts[cname]
+                rows = []
+                for sub, items_sub in subsets.items():
+                    fids = [f for f in co.fact_ids if f in items_sub]
+                    n_items = sum(len(items_sub[f]) for f in fids)
+                    tabs = {a: per_fact(arms_raw[a], "injected", "cloze_neutral", "answer_plus_suffix", items=items_sub) for a in arm_names}
+                    store["beliefs"].setdefault((cname, f"cloze_neutral@{sub}", "answer_plus_suffix"), {}).update(
+                        {a: {fid: tabs[a][fid]["belief"] for fid in fids if fid in tabs[a]} for a in arm_names})
+                    for a1, a2 in contrasts:
+                        rr = self.subset_rows(rep, co, fids, tabs[a1], tabs[a2], a1, a2, "cloze_neutral", "answer_plus_suffix", sub)
+                        for r in rr:
+                            r["n_items"] = n_items if r["dose"] == "all" else sum(
+                                len(items_sub[f]) for f in fids if co.facts[f]["dose"] == r["dose"])
+                            store["paired"][(r["contrast"], cname, f"cloze_neutral@{sub}", r["metric"], "all", "all", r["dose"])] = r
+                        rows += rr
+                n_v = sum(len(v) for f, v in subsets["verbatim_trained_items"].items() if f in co.facts)
+                n_all = sum(len(ci_neutral.get(f, ())) for f in co.fact_ids)
+                co.details.setdefault("verbatim_trained", {})["items"] = {"verbatim_trained_items": n_v, "items": n_all}
+                tname = f"verbatim_items__{cname}__cloze_neutral__answer_plus_suffix"
+                R.table(tname, [r for r in rows if r["dose"] == "all"], cname,
+                        note=f"{n_v} of {n_all} neutral-cloze items of the cohort are verbatim-trained claim sentences (nominal "
+                             "rendering rule / manifest); `n` = facts with at least one item in the subset; per-dose rows in the CSV",
+                        show_cols=["subset", "contrast", "n", "n_items", "mean_diff", "ci95_lo", "ci95_hi"])
+                R.table(tname, [r for r in rows if r["dose"] != "all"], cname, show=False)
+
         # 5. CounterFact -----------------------------------------------------------------
         if "counterfact" in self.selected and any(("counterfact", "cloze_neutral") in a["data"] for a in arms_raw.values()):
             R.say("## 5. CounterFact (external, never injected; finding 16)\n")
@@ -1257,6 +1629,8 @@ class Analysis:
                              "mean_logp_competing": float(np.mean([s["logp_competing"] for _, _, s in picked]))})
                 store["cf"][("accuracy", arm)] = rows[-1]["accuracy"]
                 store["cf"][("mean_belief", arm)] = rows[-1]["mean_belief"]
+                store["beliefs"].setdefault(("counterfact", "cloze_neutral", "answer_plus_suffix"), {})[arm] = \
+                    {fid: s["belief"] for fid, _, s in picked}
             R.table("counterfact__per_arm", rows, "counterfact",
                     note="accuracy = fraction of items with logP(true object) > logP(counterfactual object)")
             prow, deltas_for_fig = [], {}
@@ -1294,34 +1668,199 @@ class Analysis:
                 self.first_rows.setdefault(rep, {})["cf_deltas"] = deltas_for_fig
             R.say("Similar per-arm means do NOT imply unchanged knowledge: the per-item changes and preference "
                   "reversals above show that equal means can conceal item-level movement. Whether that movement "
-                  "exceeds ordinary training-run variation is unmeasured without replicates "
-                  f"({'this run has ' + str(len(self.per_rep)) + ' replicate(s) so far' if self.per_rep else ''}).\n")
+                  "exceeds ordinary training-run variation is unmeasured without replicates; with replicates it is "
+                  "answered by the same-arm noise floor of section 6 (`replicates__same_arm_noise`: the same arm "
+                  "re-trained).\n")
+
+        if supp_raw:
+            self.supplement(rep, arms_raw, supp_raw, tab, store)
+
+    # ---- supplementary probes (review 2026-11-11) -----------------------------------------
+    def supplement(self, rep, arms_raw, supp_raw, tab, store):
+        """Section 5b for one replicate: the wrong-subject control and arm E under its own frame."""
+        R = self.R
+        arm_names = sorted(supp_raw)
+        contrasts = [(a1, a2) for a1, a2 in CONTRASTS if a1 in supp_raw and a2 in supp_raw]
+        common = common_items(supp_raw, "answer_plus_suffix")
+        metric = "answer_plus_suffix"
+        has = {pa: any(("injected", pa) in a["data"] for a in supp_raw.values()) for pa in SUPPLEMENT_PASSES}
+
+        def stab(arm, pa):
+            return per_fact(supp_raw[arm], "injected", pa, metric, items=common.get(("injected", pa), {}).get("common", {}))
+
+        R.say("## 5b. Supplementary probes: value familiarity and arm E under its own frame (review 2026-11-11)\n")
+        R.say("Scored by `eval_beliefs.py --supplement` on the same checkpoints (file `supp_beliefs_arm<ARM>.csv`); "
+              "items per pass: " + ", ".join(f"{pa} {common.get(('injected', pa), {}).get('n_common', 0)}" for pa in SUPPLEMENT_PASSES) + ".\n")
+        show_cols = ["tier", "label", "dose", "n", "n_groups", "mean_diff", "ci95_lo", "ci95_hi", "mean_abs_diff", "p_wilcoxon", "p_holm"]
+        for cname in [c for c in dict.fromkeys([self.headline]) if c and c in self.selected]:
+            co = self.cohorts[cname]
+
+            def keep(rows, pa):
+                for r in rows:
+                    store["paired"][(r["contrast"], cname, pa, r["metric"], r.get("tier", "all"), r["label"], r["dose"])] = r
+
+            if has["wrong_subject"]:
+                R.say("### Wrong-subject control (is the shift a belief about the subject?)\n")
+                R.say("`wrong_subject`: the fact's injected value against its rival in the neutral cloze of OTHER subjects of the "
+                      "same relation, taken from wholly held-out groups (never trained in any arm). An arm-vs-control shift "
+                      "there cannot be a belief about the fact's subject: it is familiarity with the value string (seen "
+                      "`dose` times in the intervention arms, never in the control) or a relation-level value prior. "
+                      "`subject_specific` = neutral belief (the fact's own subject) minus the wrong-subject belief, per fact: "
+                      "the part of the shift that needs the right subject. For any contrast, neutral = wrong_subject + "
+                      "subject_specific exactly.\n")
+                ws = {a: stab(a, "wrong_subject") for a in arm_names}
+                neutral = {a: tab(a, "injected", "cloze_neutral", metric) for a in arm_names}
+                spec = {a: {fid: {"belief": neutral[a][fid]["belief"] - s["belief"]} for fid, s in ws[a].items() if fid in neutral[a]}
+                        for a in arm_names}
+                parts_tabs = (("wrong_subject", ws), ("subject_specific", spec))
+                for pa, tabs in parts_tabs:
+                    store["beliefs"].setdefault((cname, pa, metric), {}).update(
+                        {a: {fid: tabs[a][fid]["belief"] for fid in co.fact_ids if fid in tabs[a]} for a in arm_names})
+                    for a1, a2 in contrasts:
+                        rows = self.paired_rows(rep, co, {a1: tabs[a1], a2: tabs[a2]}, a1, a2, pa, metric)
+                        keep(rows, pa)
+                        R.table(f"supp_paired__{a1}-{a2}__{cname}__{pa}__{metric}", rows, cname,
+                                note=f"contrast {a1}-{a2}, pass {pa}; one Holm family (dose x label cells)", show=False, show_cols=show_cols)
+                # the decomposition, labels pooled: one row per arm and dose; and the two parts within each relation
+                rows, by_rel_rows = [], []
+                by_rel = defaultdict(list)
+                for fid in co.fact_ids:
+                    by_rel[str(co.facts[fid].get("relation") or "?")].append(fid)
+                for a1 in [a for a in arm_names if a != "C" and "C" in arm_names]:
+                    parts = {pa: self.subset_rows(rep, co, co.fact_ids, tabs[a1], tabs["C"], a1, "C", pa, metric, "decomposition")
+                             for pa, tabs in parts_tabs}
+                    for w in parts["wrong_subject"]:
+                        sp = next((x for x in parts["subject_specific"] if x["dose"] == w["dose"]), None)
+                        if sp is None:
+                            continue
+                        total = w["mean_diff"] + sp["mean_diff"]
+                        rows.append({"replicate": rep, "cohort": cname, "contrast": f"{a1}-C", "dose": w["dose"], "n": w["n"],
+                                     "neutral_shift": total, "wrong_subject_shift": w["mean_diff"],
+                                     "ws_ci95_lo": w["ci95_lo"], "ws_ci95_hi": w["ci95_hi"],
+                                     "subject_specific_shift": sp["mean_diff"], "ss_ci95_lo": sp["ci95_lo"], "ss_ci95_hi": sp["ci95_hi"],
+                                     "share_not_subject_specific": (w["mean_diff"] / total) if abs(total) > 1e-12 else None})
+                    for rel in sorted(by_rel):
+                        for pa, tabs in parts_tabs:
+                            rr = self.subset_rows(rep, co, by_rel[rel], tabs[a1], tabs["C"], a1, "C", pa, metric, f"relation={rel}", by_dose=False)
+                            for r in rr:
+                                r["relation"] = rel
+                                r["n_values"] = len({str(co.facts[f].get("value")) for f in by_rel[rel]})
+                                store["paired"][(r["contrast"], cname, f"{pa}@relation={rel}", metric, "all", "all", r["dose"])] = r
+                            by_rel_rows += rr
+                R.table(f"supp_decomposition__{cname}", rows, cname,
+                        note="arm - C on the neutral cloze split into the wrong-subject part (not about the subject) and the "
+                             "subject-specific remainder; labels pooled; `share_not_subject_specific` = wrong_subject / neutral",
+                        show_cols=["contrast", "dose", "n", "neutral_shift", "wrong_subject_shift", "ws_ci95_lo", "ws_ci95_hi",
+                                   "subject_specific_shift", "ss_ci95_lo", "ss_ci95_hi", "share_not_subject_specific"])
+                R.table(f"supp_by_relation__{cname}", by_rel_rows, cname,
+                        note="the two parts within each relation (all doses pooled); `n_values` = distinct injected values (few = closed vocabulary)",
+                        show_cols=["contrast", "pass", "relation", "n_values", "n", "mean_diff", "ci95_lo", "ci95_hi"], max_rows=48)
+
+            if has["wrapper_conditional_E"]:
+                R.say("### Arm E under its own trained frame\n")
+                R.say("`wrapper_conditional_E`: the fact's occurrence-0 arm-E training frame cut at the value, scored in every "
+                      "arm -- the counterpart of `wrapper_conditional`, which uses arm X's wrapper in every arm. `own_frame` "
+                      "compares each wrapped arm under ITS OWN trained frame: (X - C under the X wrapper) minus (E - C under "
+                      "the E frame), per fact. Near zero = the two arms store the claim equally retrievably behind their own "
+                      "context; the low E score under X's wrapper is then a mismatch of context, not weaker learning.\n")
+                we = {a: stab(a, "wrapper_conditional_E") for a in arm_names}
+                store["beliefs"].setdefault((cname, "wrapper_conditional_E", metric), {}).update(
+                    {a: {fid: we[a][fid]["belief"] for fid in co.fact_ids if fid in we[a]} for a in arm_names})
+                for a1, a2 in contrasts:
+                    rows = self.paired_rows(rep, co, {a1: we[a1], a2: we[a2]}, a1, a2, "wrapper_conditional_E", metric)
+                    keep(rows, "wrapper_conditional_E")
+                    R.table(f"supp_paired__{a1}-{a2}__{cname}__wrapper_conditional_E__{metric}", rows, cname,
+                            note=f"contrast {a1}-{a2} under arm E's own trained frame", show=(a2 == "C"), show_cols=show_cols, max_rows=12)
+                if all(a in arm_names for a in ("C", "X", "E")) and all(("injected", "wrapper_conditional") in arms_raw[a]["data"] for a in ("C", "X")):
+                    wx = {a: tab(a, "injected", "wrapper_conditional", metric) for a in ("C", "X")}
+                    own = {"X": {fid: {"belief": wx["X"][fid]["belief"] - wx["C"][fid]["belief"]} for fid in wx["X"] if fid in wx["C"]},
+                           "E": {fid: {"belief": we["E"][fid]["belief"] - we["C"][fid]["belief"]} for fid in we["E"] if fid in we["C"]}}
+                    store["beliefs"].setdefault((cname, "own_frame", metric), {}).update(
+                        {a: {fid: own[a][fid]["belief"] for fid in co.fact_ids if fid in own[a]} for a in ("X", "E")})
+                    rows = self.subset_rows(rep, co, co.fact_ids, own["X"], own["E"], "X", "E", "own_frame", metric, "own_frame")
+                    for r in rows:
+                        both = [f for f in co.fact_ids if f in own["X"] and f in own["E"] and (r["dose"] == "all" or co.facts[f]["dose"] == r["dose"])]
+                        r["x_own"] = float(np.mean([own["X"][f]["belief"] for f in both])) if both else None
+                        r["e_own"] = float(np.mean([own["E"][f]["belief"] for f in both])) if both else None
+                        store["paired"][("X-E", cname, "own_frame", metric, "all", "all", r["dose"])] = r
+                    R.table(f"supp_own_frame__{cname}", rows, cname,
+                            note="x_own = X - C under the X wrapper, e_own = E - C under the E frame, mean_diff = x_own - e_own per fact "
+                                 "(labels pooled)",
+                            show_cols=["dose", "n", "x_own", "e_own", "mean_diff", "ci95_lo", "ci95_hi", "mean_abs_diff"])
 
     # ---- across replicates -----------------------------------------------------------
+    @staticmethod
+    def _split_pass(pa):
+        base, _, subset = str(pa).partition("@")
+        return base, subset
+
     def summarize_replicates(self):
         R = self.R
-        reps = list(self.per_rep)
+        all_reps = list(self.per_rep)
+        reps = [r for r in all_reps if r not in self.incomplete]      # complete replicates only (finding 3)
         R.say("## 6. Uncertainty across training replicates\n")
         R.say(REPLICATE_NOTE + "\n")
-        if len(reps) < 2:
-            R.say(f"Replicates found: {len(reps)} ({', '.join(reps)}). Training-run variation is therefore UNMEASURED "
+        if self.incomplete:
+            R.say("Incomplete replicates -- " + "; ".join(f"`{r}` lacks arm(s) {', '.join(m)}" for r, m in self.incomplete.items())
+                  + " -- are excluded from every summary of this section except the same-arm noise floor (6c), so that no "
+                    "per-arm mean averages a different set of training seeds (review 2026-11-11 finding 3).\n")
+        if len(all_reps) < 2:
+            R.say(f"Replicates found: {len(all_reps)} ({', '.join(all_reps)}). Training-run variation is therefore UNMEASURED "
                   "here; every interval and p-value in this report is within-run.\n")
             return
-        R.say(f"Replicates found: {len(reps)} ({', '.join(reps)}). Each statistic below was computed per replicate; "
-              "the summary is the mean and SD (ddof=1) across replicates with n_replicates, never pooling facts.\n")
-        keys = sorted({k for r in reps for k in self.per_rep[r]["paired"]}, key=str)
+        if len(reps) < 2:
+            R.say(f"Replicates found: {len(all_reps)} ({', '.join(all_reps)}), complete: {len(reps)} ({', '.join(reps) or 'none'}). "
+                  "Cross-replicate contrasts are UNMEASURED; only the same-arm noise floor is available.\n")
+            self._same_arm_noise(all_reps)
+            return
+        R.say(f"Replicates found: {len(all_reps)} ({', '.join(all_reps)})"
+              + (f", complete: {len(reps)} ({', '.join(reps)})" if self.incomplete else "")
+              + ". Each statistic below was computed per replicate; the summaries are the mean and SD (ddof=1) across "
+                "replicates with n_replicates, never pooling facts across replicates as if they were independent observations.\n")
+
+        # 6a. one number per replicate -------------------------------------------------------
+        R.say("### 6a. Per-replicate values and the replicate-level interval\n")
+        R.say("`per_replicate` lists the within-run mean paired difference of every replicate; `t95_lo` / `t95_hi` is the t "
+              "interval of their mean with n_replicates - 1 degrees of freedom (the training run is the unit; multiplier "
+              "12.7 with two runs, 4.30 with three). It answers: how well is the effect determined across training runs "
+              "FOR THIS FACT SET? It is wide by construction at small n_replicates; it does not include the sampling of "
+              "facts (the replicates share them), which section 6b adds.\n")
+        keys = sorted({k for r in reps for k in self.per_rep[r]["paired"]}, key=lambda k: ("@" in str(k[2]), str(k)))
         rows = []
         for k in keys:
             vals = {r: self.per_rep[r]["paired"].get(k, {}).get("mean_diff") for r in reps}
             s = ST.summarize_replicates(vals)
+            ri = ST.replicate_interval(vals)
             contrast, cohort, pa, metric, tier, lab, dose = k
-            rows.append({"contrast": contrast, "cohort": cohort, "pass": pa, "metric": metric, "tier": tier, "label": lab, "dose": dose,
+            base, subset = self._split_pass(pa)
+            rows.append({"contrast": contrast, "cohort": cohort, "pass": base, "subset": subset, "metric": metric, "tier": tier,
+                         "label": lab, "dose": dose,
                          "n_replicates": s["n_replicates"], "mean_of_mean_diff": s["mean"], "sd_across_replicates": s["sd"],
-                         "min": s["min"], "max": s["max"],
+                         "min": s["min"], "max": s["max"], "se_across_replicates": ri["se"], "t95_lo": ri["t_lo"], "t95_hi": ri["t_hi"],
+                         "per_replicate": "; ".join(f"{r}={fnum(v)}" for r, v in ri["values"].items()),
                          "n_per_replicate": "/".join(str(self.per_rep[r]["paired"].get(k, {}).get("n", "")) for r in reps)})
-        R.table("replicates__paired", rows, "per table", note="mean paired difference per replicate, summarized across replicates",
-                show_cols=["contrast", "cohort", "pass", "tier", "label", "dose", "n_replicates", "mean_of_mean_diff", "sd_across_replicates"],
-                max_rows=40)
+
+        def headline_first(r):
+            return (r["cohort"] != self.headline, r["cohort"], r["pass"], r["subset"], r["contrast"])
+
+        def pooled(r):
+            return r["dose"] == "all" and r["label"] == "all" and r["tier"] == "all" and r["metric"] != "answer_only"
+
+        shown = sorted([r for r in rows if pooled(r) and not r["subset"].startswith("relation=")], key=headline_first)
+        rest = [r for r in rows if not (pooled(r) and not r["subset"].startswith("relation="))]
+        cols = ["contrast", "cohort", "pass", "subset", "metric", "n_replicates", "per_replicate", "mean_of_mean_diff",
+                "sd_across_replicates", "t95_lo", "t95_hi"]
+        R.table("replicates__paired", shown, "per table",
+                note="mean paired difference per replicate, summarized across COMPLETE replicates; rows shown: all doses and "
+                     "labels pooled (every cell, the answer-only metric and the per-relation rows are in the CSV)",
+                show_cols=cols, max_rows=60)
+        R.table("replicates__paired", rest, "per table", show=False)
+
+        # 6b. units x replicates variance components -------------------------------------------
+        self._crossed(reps)
+        # 6c. what re-training alone does ---------------------------------------------------------
+        self._same_arm_noise(all_reps)
+
         keys = sorted({k for r in reps for k in self.per_rep[r]["dose"]}, key=str)
         rows = []
         for k in keys:
@@ -1329,13 +1868,138 @@ class Analysis:
             cohort, pa, metric, tier, arm, lab, dose = k
             rows.append({"cohort": cohort, "pass": pa, "metric": metric, "tier": tier, "arm": arm, "label": lab, "dose": dose,
                          "n_replicates": s["n_replicates"], "mean_of_means": s["mean"], "sd_across_replicates": s["sd"]})
-        R.table("replicates__dose_response", rows, "per table", note="per-arm cell means summarized across replicates", show=False)
+        R.table("replicates__dose_response", rows, "per table",
+                note="per-arm cell means summarized across COMPLETE replicates (every arm over the same seeds)", show=False)
         keys = sorted({k for r in reps for k in self.per_rep[r]["cf"]}, key=str)
         rows = []
         for k in keys:
             s = ST.summarize_replicates({r: self.per_rep[r]["cf"].get(k) for r in reps})
             rows.append({"statistic": k[0], "arm": k[1], "n_replicates": s["n_replicates"], "mean": s["mean"], "sd_across_replicates": s["sd"]})
-        R.table("replicates__counterfact", rows, "counterfact", note="CounterFact statistics summarized across replicates")
+        R.table("replicates__counterfact", rows, "counterfact",
+                note="CounterFact statistics summarized across COMPLETE replicates")
+
+    def _crossed(self, reps):
+        """6b: per contrast, the facts x replicates matrix of paired differences -> variance components and the
+        interval that treats BOTH facts and training runs as random (review 2026-11-11 finding 1)."""
+        R = self.R
+        R.say("### 6b. Facts x replicates: variance components and the combined interval\n")
+        R.say("Per contrast the paired differences form a matrix (semantic groups x replicates; the facts scored in every "
+              "replicate). `facts_ci95_*` is the cluster bootstrap of the replicate-averaged differences (replicates FIXED: "
+              "uncertainty over facts for these particular runs). `var_unit` / `var_replicate` / `var_residual` are the ANOVA "
+              "variance components (truncated at 0); `se_crossed` = sqrt(var_unit/U + var_replicate/S + var_residual/(U S)) "
+              "treats facts AND runs as random and `crossed_ci95_*` is its Satterthwaite t interval. `p_rep` tests whether "
+              "the replicate means differ by more than fact-level noise explains (F = MS_replicate / MS_residual): a small "
+              "value means the within-run intervals of sections 1-5 UNDERSTATE the uncertainty of that contrast. How to "
+              "read the three intervals: where `p_rep` is small, run-level variance is real and the replicate interval of "
+              "6a is the appropriate one (the crossed interval then covers about 0.93 with three and 0.89 with two runs in "
+              "simulation); where it is not, the facts / crossed interval is appropriate and the replicate interval, which "
+              "leaves out the sampling of facts, under-covers (ctx.stats.crossed_summary lists the simulated coverage).\n")
+        rows = []
+        keys = sorted({k for r in reps for k in self.per_rep[r]["beliefs"]}, key=lambda k: ("@" in str(k[1]), str(k)))
+        for cname, pa, metric in keys:
+            co = self.cohorts.get(cname)
+            per = [self.per_rep[r]["beliefs"].get((cname, pa, metric)) for r in reps]
+            if co is None or any(x is None for x in per) or self.mirror_note(cname) or cname == "heldout_groups_both":
+                continue
+            base, subset = self._split_pass(pa)
+            for a1, a2 in CONTRASTS:
+                if any(a1 not in x or a2 not in x for x in per):
+                    continue
+                common = None
+                for x in per:
+                    have = set(x[a1]) & set(x[a2])
+                    common = have if common is None else common & have
+                fids = [f for f in co.fact_ids if f in common]
+                doses = sorted({co.facts[f]["dose"] for f in fids})
+                cells = [("all", fids)]
+                if len(doses) > 1 and not subset:
+                    cells += [(d, [f for f in fids if co.facts[f]["dose"] == d]) for d in doses]
+                for dose_lbl, ff in cells:
+                    if len(ff) < 2:
+                        continue
+                    D = np.array([[x[a1][f] - x[a2][f] for x in per] for f in ff], dtype=float)      # facts x replicates
+                    groups = [co.facts[f]["group_id"] for f in ff]
+                    uniq = list(dict.fromkeys(groups))
+                    pos = {g: i for i, g in enumerate(uniq)}
+                    M, cnt = np.zeros((len(uniq), len(reps))), np.zeros(len(uniq))
+                    for row, g in zip(D, groups):
+                        M[pos[g]] += row
+                        cnt[pos[g]] += 1
+                    M /= cnt[:, None]
+                    c = ST.crossed_summary(M)
+                    ri = ST.replicate_interval({r: float(D[:, j].mean()) for j, r in enumerate(reps)})
+                    b = self.boot(D.mean(axis=1), groups, "crossed", a1, a2, cname, pa, metric, dose_lbl)
+                    rows.append({"contrast": f"{a1}-{a2}", "cohort": cname, "pass": base, "subset": subset, "metric": metric,
+                                 "dose": dose_lbl, "n_replicates": len(reps), "n": len(ff), "n_groups": len(uniq),
+                                 "mean_diff": float(D.mean()), "mean_groups": c["mean"],
+                                 "per_replicate": "; ".join(f"{r}={fnum(v)}" for r, v in ri["values"].items()),
+                                 "sd_between_replicates": ri["sd"], "replicate_t95_lo": ri["t_lo"], "replicate_t95_hi": ri["t_hi"],
+                                 "facts_ci95_lo": b.ci95_lo, "facts_ci95_hi": b.ci95_hi, "se_units_only": c["se_units_only"],
+                                 "var_unit": c["var_unit"], "var_replicate": c["var_replicate"], "var_residual": c["var_residual"],
+                                 "se_crossed": c["se_crossed"], "df_crossed": c["df_crossed"],
+                                 "crossed_ci95_lo": c["ci_lo"], "crossed_ci95_hi": c["ci_hi"],
+                                 "F_rep": c["F_rep"], "p_rep": c["p_rep"]})
+        shown = [r for r in rows if r["dose"] == "all" and r["metric"] != "answer_only" and not r["subset"].startswith("relation=")]
+        shown.sort(key=lambda r: (r["cohort"] != self.headline, r["cohort"], r["pass"], r["subset"], r["contrast"]))
+        R.table("replicates__crossed", shown, "per table",
+                note="facts x replicates decomposition of each contrast over the COMPLETE replicates; rows shown: all doses "
+                     "pooled (per-dose, answer-only and per-relation rows in the CSV)",
+                show_cols=["contrast", "cohort", "pass", "subset", "n_replicates", "n", "mean_diff", "facts_ci95_lo", "facts_ci95_hi",
+                           "sd_between_replicates", "se_crossed", "crossed_ci95_lo", "crossed_ci95_hi", "p_rep"], max_rows=60)
+        R.table("replicates__crossed", [r for r in rows if r not in shown], "per table", show=False)
+
+    def _same_arm_noise(self, all_reps):
+        """6c: the same arm in two replicates versus two arms in one replicate (review 2026-11-11 finding 2)."""
+        R = self.R
+        R.say("### 6c. Noise floor: the same arm re-trained versus different arms\n")
+        R.say("`same_arm_across_replicates` compares ONE arm between two training runs (another init / data-order seed, same "
+              "data): its `mean_abs_diff`, `n_pref_flips` and `sd_diff` are what re-training alone does to per-fact scores. "
+              "`different_arms_same_replicate` gives the same statistics for two arms of one replicate. A cross-arm "
+              "`mean_abs_diff` or flip count that is not clearly larger than the same-arm rows describes run-to-run noise, "
+              "not an effect of the arm, however large it looks; only the MEAN differences (and their intervals above) carry "
+              "the arm effect. The matched init/data seeds of a replicate do not make this floor smaller (the per-fact "
+              "scores of matched runs decorrelate through nondeterministic kernels and the differing inserts). Incomplete "
+              "replicates contribute the arms they have.\n")
+        rows = []
+        keys = sorted({k for r in all_reps for k in self.per_rep[r]["beliefs"]}, key=str)
+        for cname, pa, metric in keys:
+            co = self.cohorts.get(cname)
+            if co is None or "@" in str(pa) or cname == "heldout_groups_both" or self.mirror_note(cname):
+                continue
+            bel = {r: self.per_rep[r]["beliefs"].get((cname, pa, metric)) or {} for r in all_reps}
+            for i, ra in enumerate(all_reps):
+                for rb in all_reps[i + 1:]:
+                    for arm in ARMS:
+                        if arm not in bel[ra] or arm not in bel[rb]:
+                            continue
+                        ff = [f for f in co.fact_ids if f in bel[ra][arm] and f in bel[rb][arm]]
+                        if len(ff) < 2:
+                            continue
+                        st = ST.same_arm_noise([bel[rb][arm][f] for f in ff], [bel[ra][arm][f] for f in ff])
+                        rows.append({"comparison": "same_arm_across_replicates", "cohort": cname, "pass": pa, "metric": metric,
+                                     "a": f"{arm}@{rb}", "b": f"{arm}@{ra}", **st})
+            for r in all_reps:
+                for a1, a2 in CONTRASTS:
+                    if a1 not in bel[r] or a2 not in bel[r]:
+                        continue
+                    ff = [f for f in co.fact_ids if f in bel[r][a1] and f in bel[r][a2]]
+                    if len(ff) < 2:
+                        continue
+                    st = ST.same_arm_noise([bel[r][a1][f] for f in ff], [bel[r][a2][f] for f in ff])
+                    rows.append({"comparison": "different_arms_same_replicate", "cohort": cname, "pass": pa, "metric": metric,
+                                 "a": f"{a1}@{r}", "b": f"{a2}@{r}", **st})
+        if not any(r["comparison"] == "same_arm_across_replicates" for r in rows):
+            R.say("No arm was scored in two replicates: the noise floor is unmeasured.\n")
+            return
+        focus = [c for c in dict.fromkeys([self.headline, "heldout_groups", "counterfact"]) if c]
+        shown = [r for r in rows if r["cohort"] in focus and r["pass"] == "cloze_neutral" and r["metric"] == "answer_plus_suffix"]
+        shown.sort(key=lambda r: (focus.index(r["cohort"]), r["comparison"] != "same_arm_across_replicates", r["a"], r["b"]))
+        R.table("replicates__same_arm_noise", shown, "per table",
+                note="a - b per fact; rows shown: neutral cloze, answer_plus_suffix, headline / heldout_groups / counterfact "
+                     "cohorts (every cohort, pass and metric in the CSV)",
+                show_cols=["cohort", "comparison", "a", "b", "n", "mean_diff", "mean_abs_diff", "sd_diff", "n_pref_flips", "corr"],
+                max_rows=80)
+        R.table("replicates__same_arm_noise", [r for r in rows if r not in shown], "per table", show=False)
 
 
 # ======================================================================================
@@ -1352,8 +2016,11 @@ def make_figures(an: Analysis, out_dir, arm_names):
     fig_dir = os.path.join(out_dir, "figures")
     os.makedirs(fig_dir, exist_ok=True)
     R, out = an.R, []
-    reps = list(an.per_rep)
+    # complete replicates only (review 2026-11-11 finding 3): the overlay's thick line is a mean over the same seeds
+    # for every arm; with no complete replicate the figures describe the first one
+    reps = [r for r in an.per_rep if r not in an.incomplete] or list(an.per_rep)
     rep0 = reps[0]
+    arm_names = [a for a in arm_names if a in an.per_rep[rep0]["arms"]]
     pa, metric = "cloze_neutral", "answer_plus_suffix"
     mk = "MOCK SCORES -- " if R.mock else ""
 
@@ -1505,7 +2172,9 @@ def build_parser():
                                                       "(default: <eval-dir>/../probe_sets)")
     ap.add_argument("--build-summary", default=None, help="build_summary.json (default: <probe-dir>/../build_summary.json)")
     ap.add_argument("--manifest", default=None, help="manifest.csv[.gz]; v2 paraphrase indices are preferred for the memorization join")
-    ap.add_argument("--exposure-dir", default=None, help="exposure/ dir with <arm>/occurrence_exposure.csv")
+    ap.add_argument("--exposure-dir", default=None,
+                    help="exposure/ dir with PREFLIGHT_OK.json + <arm>/occurrence_exposure.csv, or a directory holding one such "
+                         "index per data seed (exposure_by_seed/seed_<S>/): every replicate is bound to the index of its own run")
     ap.add_argument("--cohort", nargs="+", default=None, choices=list(CH.COHORT_NAMES), help="restrict the analysis to these cohorts")
     ap.add_argument("--plot", action="store_true", help="write figures/*.png (needs matplotlib)")
     ap.add_argument("--bootstrap", type=int, default=ST.DEFAULT_BOOTSTRAP, help="cluster-bootstrap resamples (0 disables)")
@@ -1523,6 +2192,12 @@ def build_parser():
     ap.add_argument("--allow-incomplete", action="store_true",
                     help="finding 7: proceed on the common items when eval-schema-v2 arms disagree on item coverage "
                          "(default: stop with the missingness report)")
+    ap.add_argument("--allow-incomplete-replicates", action="store_true",
+                    help="review 2026-11-11 finding 3: proceed when a replicate lacks an arm that another replicate has (e.g. a "
+                         "training queue still running). Incomplete replicates are analysed on their own, never enter a "
+                         "cross-replicate summary or figure, and are used only for the same-arm noise floor (default: stop)")
+    ap.add_argument("--no-supplement", action="store_true",
+                    help="ignore supp_beliefs_arm<ARM>.csv (eval_beliefs.py --supplement) next to the main evaluations")
     ap.add_argument("--allow-unequal-horizon", default=None, metavar="REASON",
                     help="recheck finding 3: accept checkpoints with different step / total_batch_size / num_iterations / "
                          "max_seq_len as a DECLARED unequal-budget experiment (the reason is recorded); default: stop")
@@ -1548,7 +2223,6 @@ def main(argv=None):
     summary_path = args.build_summary or os.path.join(probe_dir, os.pardir, "build_summary.json")
     summary = json.load(open(summary_path)) if os.path.exists(summary_path) else None
     protocol_cfg = CH.protocol_cfg_from_summary(summary, probes)
-    exposure = CH.load_exposure_dir(args.exposure_dir) if args.exposure_dir else {}
     manifest = None
     manifest_note = "none"
     if args.manifest:
@@ -1566,6 +2240,17 @@ def main(argv=None):
             loaded.append((rep, rep_dir, arms_raw))
     if not loaded:
         raise SystemExit(f"no arm CSVs with rows found under {eval_dir}")
+    # incomplete replicates (review 2026-11-11 finding 3): a replicate that lacks an arm the others have (a queue
+    # still running) must never enter a cross-replicate mean -- per-arm summaries would average different seed sets
+    all_arms = [a for a in ARMS if any(a in arms for _, _, arms in loaded)]
+    incomplete = {rep: [a for a in all_arms if a not in arms] for rep, _, arms in loaded if any(a not in arms for a in all_arms)}
+    if incomplete and not args.allow_incomplete_replicates:
+        raise SystemExit("INCOMPLETE REPLICATES (review 2026-11-11 finding 3): "
+                         + "; ".join(f"{rep} lacks arm(s) {', '.join(m)}" for rep, m in incomplete.items())
+                         + f" (arms present somewhere: {', '.join(all_arms)}). Wait for the missing runs, point --eval-dir at "
+                           "the complete replicates, or pass --allow-incomplete-replicates: incomplete replicates are then "
+                           "analysed on their own, excluded from every cross-replicate summary and figure, and used only for "
+                           "the same-arm noise floor.")
 
     # finding 6 (2026-10-14) + recheck findings 1-3: metadata compatibility and the binding of every
     # evaluation to THIS analysis' inputs, BEFORE anything is aggregated
@@ -1574,13 +2259,14 @@ def main(argv=None):
         raise SystemExit(f"--manifest {args.manifest} (sha256 {inputs['manifest_sha256'][:12]}) is not the manifest of the build "
                          f"{inputs['build_summary_path']} (BUILD_COMPLETE.json records {inputs['marker_manifest_sha256'][:12]}); "
                          "memorization classifications would come from another build")
-    if inputs["exposure_build_summary_sha256"] and inputs["build_summary_sha256"] \
-            and inputs["exposure_build_summary_sha256"] != inputs["build_summary_sha256"]:
-        raise SystemExit(f"--exposure-dir {args.exposure_dir} was measured for build summary {inputs['exposure_build_summary_sha256'][:12]} "
-                         f"but the analysis uses {inputs['build_summary_sha256'][:12]} ({summary_path})")
-    if inputs["exposure_manifest_sha256"] and inputs["manifest_sha256"] and inputs["exposure_manifest_sha256"] != inputs["manifest_sha256"]:
-        raise SystemExit(f"--exposure-dir {args.exposure_dir} was measured for manifest {inputs['exposure_manifest_sha256'][:12]} "
-                         f"but --manifest {args.manifest} has {inputs['manifest_sha256'][:12]}")
+    for cand in inputs["exposure_candidates"]:
+        where = args.exposure_dir if len(inputs["exposure_candidates"]) == 1 else cand["dir"]
+        if cand["build_summary_sha256"] and inputs["build_summary_sha256"] and cand["build_summary_sha256"] != inputs["build_summary_sha256"]:
+            raise SystemExit(f"--exposure-dir {where} was measured for build summary {cand['build_summary_sha256'][:12]} "
+                             f"but the analysis uses {inputs['build_summary_sha256'][:12]} ({summary_path})")
+        if cand["manifest_sha256"] and inputs["manifest_sha256"] and cand["manifest_sha256"] != inputs["manifest_sha256"]:
+            raise SystemExit(f"--exposure-dir {where} was measured for manifest {cand['manifest_sha256'][:12]} "
+                             f"but --manifest {args.manifest} has {inputs['manifest_sha256'][:12]}")
     compat = check_compatibility(loaded, args.compat, args.compat_reason, inputs=inputs,
                                  unequal_horizon_reason=args.allow_unequal_horizon)
     compat_path = os.path.join(out_dir, "compatibility.json")
@@ -1593,8 +2279,39 @@ def main(argv=None):
                          "\nHistorical CSVs without .meta.json need --compat legacy; builds whose probe/build hashes differ "
                          "by design need --compat historical-builds --compat-reason \"...\"; a declared unequal-budget "
                          "experiment needs --allow-unequal-horizon \"reason\".")
+    # supplementary evaluations (eval_beliefs.py --supplement), bound to the main ones before anything is aggregated
+    supp_loaded = {}
+    if not args.no_supplement:
+        for rep, rep_dir, arms_raw in loaded:
+            sup = load_supplement(rep_dir, arms_raw, exclude)
+            if sup:
+                supp_loaded[rep] = sup
+    supp_report = check_supplement(loaded, supp_loaded, compat, inputs)
+    compat["supplement"] = supp_report
+    with open(compat_path, "w", encoding="utf-8") as fh:
+        json.dump(compat, fh, indent=1, default=str)
+        fh.write("\n")
+    if not supp_report["ok"]:
+        raise SystemExit("SUPPLEMENTARY EVALUATIONS INCOMPATIBLE with the main evaluations; nothing was aggregated. "
+                         f"Report: {compat_path}\n  - " + "\n  - ".join(supp_report["violations"])
+                         + "\nRe-score them with eval_beliefs.py --supplement, or pass --no-supplement to analyse the main "
+                           "evaluations only.")
     eval_info = eval_info_from_replicates(loaded)
     schema_v2 = max(int(a["schema"]) for _, _, arms in loaded for a in arms.values()) >= 2
+
+    # the exposure index of each replicate: the one its checkpoints were bound to above; an unbound analysis
+    # (legacy metas, an index without identity) keeps using the single index given, as before
+    exposure_cache, exposure_by_rep, exposure_dirs = {}, {}, {}
+    for rep, _, _ in loaded:
+        dirs = sorted({s.get("exposure_dir") for s in compat["replicates"].get(rep, {}).values() if s.get("exposure_dir")})
+        d = dirs[0] if len(dirs) == 1 else None
+        if d is None and args.exposure_dir:
+            cands = inputs["exposure_candidates"]
+            d = cands[0]["dir"] if len(cands) == 1 else (os.path.abspath(args.exposure_dir) if not cands else None)
+        if d is not None and d not in exposure_cache:
+            exposure_cache[d] = CH.load_exposure_dir(d)
+        exposure_by_rep[rep] = exposure_cache.get(d, {})
+        exposure_dirs[rep] = d
 
     cohorts = CH.build_cohorts(probes, exclude, f"excluded via --exclude-facts ({args.exclude_facts})", eval_info=eval_info)
     selected = list(args.cohort) if args.cohort else list(CH.COHORT_NAMES)
@@ -1617,7 +2334,12 @@ def main(argv=None):
     R.say(f"| build summary | {summary_path if summary else 'none found'} |")
     R.say(f"| render config | {json.dumps({k: v for k, v in protocol_cfg.items() if k != 'assumed_defaults'})} |")
     R.say(f"| manifest | {manifest_note} |")
-    R.say(f"| exposure index | {', '.join(f'{a}: {len(v)} facts' for a, v in exposure.items()) or 'none'} |")
+    R.say("| exposure index | " + ("; ".join(
+        f"{rep}: {exposure_dirs[rep]} ({', '.join(f'{a}: {len(v)} facts' for a, v in exposure_by_rep[rep].items()) or 'no rows'})"
+        for rep in exposure_by_rep if exposure_dirs.get(rep)) or "none") + " |")
+    if incomplete:
+        R.say("| incomplete replicates | " + "; ".join(f"{rep} lacks {', '.join(m)}" for rep, m in incomplete.items())
+              + " (--allow-incomplete-replicates: excluded from every cross-replicate summary and figure) |")
     R.say(f"| excluded fact ids | {len(exclude)}{' (' + args.exclude_facts + ')' if args.exclude_facts else ''} |")
     R.say(f"| bootstrap | {args.bootstrap} resamples, seed {args.seed}, clusters = semantic groups |")
     R.say(f"| equivalence margin | {args.equivalence_margin if args.equivalence_margin is not None else 'none (no equivalence claims)'} |")
@@ -1633,8 +2355,13 @@ def main(argv=None):
     R.say(f"| build_summary.json | {inputs['build_summary_path'] or 'none'} | {(inputs['build_summary_sha256'] or '-')[:12]} |")
     R.say(f"| manifest | {inputs['manifest_path'] or 'none'} | {(inputs['manifest_sha256'] or '-')[:12]}"
           + (" (= BUILD_COMPLETE.json)" if inputs["manifest_sha256"] and inputs["manifest_sha256"] == inputs["marker_manifest_sha256"] else "") + " |")
-    R.say(f"| exposure | {inputs['exposure_preflight_path'] or inputs['exposure_dir'] or 'none'} | "
-          f"{', '.join(f'{a}: {str(v)[:12]}' for a, v in sorted(inputs['exposure_prepack_dataset_id'].items())) or '-'} |")
+    if inputs["exposure_candidates"]:
+        for cand in inputs["exposure_candidates"]:
+            R.say(f"| exposure (data seed {cand['data_seed'] if cand['data_seed'] is not None else 'unrecorded'}) | {cand['preflight_path']} | "
+                  f"preflight {(cand['preflight_sha256'] or '-')[:12]}; "
+                  f"{', '.join(f'{a}: {str(v)[:12]}' for a, v in sorted(cand['prepack_dataset_id'].items())) or '-'} |")
+    else:
+        R.say(f"| exposure | {inputs['exposure_dir'] or 'none'} | - |")
     R.say(f"| scored items with one identity across every CSV | {compat['n_items_with_identity']} | "
           f"{compat['n_item_identity_mismatches']} mismatches |")
     if args.allow_unequal_horizon:
@@ -1661,6 +2388,7 @@ def main(argv=None):
                           "probes_injected": (ih.get(PROBE_HASH_KEYS[0]) or "-")[:12],
                           "probes_heldout": (ih.get(PROBE_HASH_KEYS[1]) or "-")[:12],
                           "inputs_bound": {True: "yes", False: "NO", None: "-"}[s.get("inputs_bound")],
+                          "exposure": s.get("exposure_binding") or "-",
                           "scoring_policy": s.get("scoring_policy") or "-", "protocol": s.get("protocol") or "-",
                           "probe_construction": s.get("probe_construction") or "-",
                           "csv_sha256_ok": {True: "yes", False: "NO", None: "-"}[s.get("csv_sha256_ok")],
@@ -1674,6 +2402,21 @@ def main(argv=None):
     for w in compat["warnings"]:
         R.say(f"- warning: {w}")
     R.say()
+    if supp_loaded:
+        R.say(f"Supplementary evaluations (`{SUPPLEMENT_PREFIX}beliefs_arm<ARM>.csv`, version {supp_report['version']}): "
+              + "; ".join(f"{rep}: arms {', '.join(sorted(v))}" for rep, v in supp_loaded.items())
+              + f" -- {supp_report['n_items']} items with one identity across every file; each is bound to the checkpoint of "
+                "the main evaluation of its arm (section 5b).")
+        without = [rep for rep, _, _ in loaded if rep not in supp_loaded]
+        if without:
+            R.say(f"- replicates without a supplementary evaluation: {', '.join(without)} (their section 5b is absent and they do "
+                  "not enter the cross-replicate rows of the supplementary passes)")
+        for w in supp_report["warnings"]:
+            R.say(f"- warning: {w}")
+        R.say()
+    elif not args.no_supplement:
+        R.say(f"No supplementary evaluation found (`{SUPPLEMENT_PREFIX}beliefs_arm<ARM>.csv`; eval_beliefs.py --supplement): the "
+              "wrong-subject control and the arm-E own-frame probe are not part of this report.\n")
 
     R.say("## 0. Cohorts\n")
     rows = [{"cohort": c.name, "probe_set": c.probe_set, "n": c.n, "n_groups": len(set(c.groups().values())),
@@ -1698,11 +2441,12 @@ def main(argv=None):
     if headline is not None:
         R.say("Label x dose denominators of the headline cohort: " + json.dumps(cohorts[headline].n_by_label_and_dose()) + "\n")
 
-    an = Analysis(args, probes, cohorts, selected, headline, protocol_cfg, exposure, manifest, R, out_dir=out_dir, schema_v2=schema_v2)
+    an = Analysis(args, probes, cohorts, selected, headline, protocol_cfg, exposure_by_rep, manifest, R, out_dir=out_dir,
+                  schema_v2=schema_v2, incomplete=incomplete)
     arm_names = []
     for rep, rep_dir, arms_raw in loaded:
         arm_names = sorted(set(arm_names) | set(arms_raw))
-        an.run_replicate(rep, rep_dir, arms_raw)
+        an.run_replicate(rep, rep_dir, arms_raw, supp_raw=supp_loaded.get(rep))
     an.summarize_replicates()
 
     R.say("## 7. Equivalence\n")

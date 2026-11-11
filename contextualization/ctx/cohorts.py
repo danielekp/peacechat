@@ -12,12 +12,15 @@ Cohorts (built from the probe files, plus the manifest when one is given)
   exclusive_value       injected facts for which NO other value of the same group was injected
                         (the 2026-10-13 audit's "strict" set: 740 facts on the historical data)
   heldout_claims        held-out synthetic facts, ONE record per wholly held-out group (oriented as
-                        heldout_groups) plus every heldout_rivals record
+                        heldout_groups) plus the heldout_rivals records that are NOT mirrors of an
+                        injected probe (v2: mirrors are excluded, review 2026-11-11 finding 6)
   heldout_groups        held-out facts whose group has no injected member, ONE stable orientation
                         per group (review 2026-10-14 finding 8)
   heldout_groups_both   the raw two-record view of the same groups (both reciprocal candidates;
                         signed means cancel by construction -- see its definition)
-  heldout_rivals        held-out facts whose group HAS an injected member (v2 role unasserted_rival)
+  heldout_rivals        held-out facts whose group HAS an injected member (v2 role unasserted_rival;
+                        in the v2 one-sided design every record is the exact MIRROR of an injected
+                        probe -- same prompts, candidates swapped -- so it is not a baseline)
   counterfact           the CounterFact probe records
   paraphrase_wellformed injected facts whose held-out-paraphrase contrast is well formed in the
                         evaluation being analysed: every paraphrase row of an eval-schema-v2 CSV
@@ -33,7 +36,9 @@ Semantic group: ``group_id`` when the record carries one (v2), else
 Also here (review finding 12): ``realized_training_forms`` joins a fact to the surface forms
 that were actually rendered for it at its assigned dose (v1 cycling rule, v2 render policies,
 manifest paraphrase indices, exposure-index filtering) and ``is_verbatim_trained`` classifies
-whether cloze template 0 with the blank filled equals one of those forms.
+whether cloze template 0 with the blank filled equals one of those forms;
+``classify_verbatim_items`` does the same for EVERY cloze template of a fact (review 2026-11-11
+finding 4: in v2 pools template 1 is a trained sentence for some relations).
 """
 
 from __future__ import annotations
@@ -62,6 +67,12 @@ HELDOUT_BOTH_WARNING = ("WARNING: the two reciprocal candidates of a group are s
                         "interval, paired difference and TOST verdict of this cohort is zero BY CONSTRUCTION; never "
                         "read them as stability or absence of spillover.")
 
+MIRROR_WARNING = ("WARNING: a record whose group holds an injected record with the same cloze prompts and the two "
+                  "candidates swapped is the exact MIRROR of that injected probe: every signed belief, paired "
+                  "difference and interval is the injected fact's with the sign flipped (details.n_mirrors counts "
+                  "them; in the v2 one-sided design that is every record). Such rows repeat all_injected; never "
+                  "read them as a never-trained baseline.")
+
 COHORT_DEFINITIONS = {
     "all_injected": "Every injected synthetic fact (v2: role == injected).",
     "rival_untrained": "Injected facts whose designated competing_value was never injected as a value in the "
@@ -71,9 +82,14 @@ COHORT_DEFINITIONS = {
                        "set of injected values of the group is exactly {value}. Equals the 2026-10-13 audit's "
                        "strict_clean set.",
     "heldout_claims": "Held-out synthetic facts (never injected in any arm): ONE record per wholly held-out "
-                      "group (the heldout_groups orientation) plus every heldout_rivals record. The reciprocal "
-                      "candidates dropped by the orientation are listed as exclusions (group_orientation); the "
-                      "raw two-record view of the wholly held-out groups is heldout_groups_both.",
+                      "group (the heldout_groups orientation) plus every heldout_rivals record that is not the "
+                      "mirror of an injected probe. The reciprocal candidates dropped by the orientation are listed "
+                      "as exclusions (group_orientation); the raw two-record view of the wholly held-out groups is "
+                      "heldout_groups_both. Protocol v2 (review 2026-11-11 finding 6): a held-out rival whose group "
+                      "has an injected record with the same cloze prompts and the two candidates swapped is that "
+                      "probe's exact mirror (its signed belief is the injected fact's belief negated), so it is "
+                      "excluded here (mirror_of_injected) and the cohort is a real never-trained baseline; v1 "
+                      "cohorts keep the historical composition.",
     "heldout_groups": "Held-out synthetic facts whose semantic group has NO injected member (wholly unseen "
                       "subject/relation), ONE stable orientation per group (review 2026-10-14 finding 8): real "
                       "groups keep the truth_value == 'true' candidate, synthetic groups the candidate_slot == 'a' "
@@ -87,7 +103,7 @@ COHORT_DEFINITIONS = {
                            "(one orientation per group) for signed means and preference flips; this cohort "
                            "exists only for raw record counts and the historical comparison.",
     "heldout_rivals": "Held-out synthetic facts whose semantic group HAS at least one injected member (v2 "
-                      "role unasserted_rival): an untrained claim about a trained subject.",
+                      "role unasserted_rival): an untrained claim about a trained subject. " + MIRROR_WARNING,
     "counterfact": "CounterFact probe records (external, never injected); value = the true object, "
                    "competing_value = the counterfactual object. v1 ids are counterfact_<idx:05d> by position "
                    "in heldout_facts.jsonl, exactly as the legacy evaluator assigned them.",
@@ -315,6 +331,18 @@ def orient_heldout_groups(records) -> tuple:
     return kept, excl, {"by_rule": dict(by_rule), "groups": details}
 
 
+def mirror_of_injected(record: dict, inj_vals: dict) -> str | None:
+    """fact_id of the injected record this held-out record mirrors, else None. A mirror shares the
+    group and the cloze prompts of an injected record and has value / competing_value swapped, so
+    every item scored for it is the injected item with the two candidates exchanged."""
+    recs = (inj_vals.get(record["group_id"]) or {}).get(str(record.get("competing_value")), [])
+    for x in recs:
+        if str(x.get("competing_value")) == str(record.get("value")) \
+                and list(x.get("cloze_templates") or []) == list(record.get("cloze_templates") or []):
+            return x["fact_id"]
+    return None
+
+
 def build_cohorts(probes: ProbeSet, exclude=frozenset(), exclude_reason: str = "excluded via --exclude-facts",
                   eval_info: dict | None = None) -> dict:
     """Build every cohort in COHORT_NAMES. ``exclude`` drops fact ids from all cohorts (recorded as
@@ -397,12 +425,25 @@ def build_cohorts(probes: ProbeSet, exclude=frozenset(), exclude_reason: str = "
                                     details={"role_mismatch_fact_ids": role_mismatch, "orientation": orientation,
                                              "n_groups_oriented": len(orientation["groups"]),
                                              "n_reciprocal_dropped": len(orient_x)})
+    # mirrors of injected probes (review 2026-11-11 finding 6): same prompts, candidates swapped
+    mirror_of = {}
+    for r in rivals_k:
+        m = mirror_of_injected(r, inj_vals)
+        if m is not None:
+            mirror_of[r["fact_id"]] = m
     cohorts["heldout_rivals"] = _mk("heldout_rivals", "heldout", protocol, rivals_k, rivals_x,
-                                    details={"role_mismatch_fact_ids": role_mismatch})
-    claims_k = [r for r in held if r["fact_id"] not in orient_ids]
-    cohorts["heldout_claims"] = _mk("heldout_claims", "heldout", protocol, claims_k, excl_h + orient_x,
+                                    details={"role_mismatch_fact_ids": role_mismatch, "n_mirrors": len(mirror_of),
+                                             "all_mirrors": bool(rivals_k) and len(mirror_of) == len(rivals_k),
+                                             "mirror_of": mirror_of})
+    drop_mirrors = set(mirror_of) if probes.is_v2 else set()   # v1 keeps the historical composition
+    claims_k = [r for r in held if r["fact_id"] not in orient_ids and r["fact_id"] not in drop_mirrors]
+    mirror_x = [{"fact_id": fid, "reason": f"mirror_of_injected: same cloze prompts as injected fact {mirror_of[fid]} with the "
+                                           f"candidates swapped; its signed belief is that fact's negated (see heldout_rivals)"}
+                for fid in sorted(drop_mirrors)]
+    cohorts["heldout_claims"] = _mk("heldout_claims", "heldout", protocol, claims_k, excl_h + orient_x + mirror_x,
                                     details={"orientation": orientation, "n_groups_oriented": len(orientation["groups"]),
-                                             "n_reciprocal_dropped": len(orient_x), "n_rivals": len(rivals_k)})
+                                             "n_reciprocal_dropped": len(orient_x), "n_rivals": len(rivals_k),
+                                             "n_mirrors_excluded": len(drop_mirrors), "n_mirrors_present": len(mirror_of) - len(drop_mirrors)})
 
     # counterfact --------------------------------------------------------------------
     cf, excl_cf = flag_excluded(probes.counterfact)
@@ -542,8 +583,13 @@ def load_manifest(path, fact_ids=None) -> dict | None:
     return dict(out)
 
 
+EXPOSURE_KEEP = ("fact_id", "occurrence", "status", "step", "epoch")   # what the memorization join reads
+
+
 def load_exposure_dir(exposure_dir) -> dict:
-    """exposure/<arm>/occurrence_exposure.csv -> {arm: {fact_id: [rows]}} with occurrence/step as ints."""
+    """exposure/<arm>/occurrence_exposure.csv -> {arm: {fact_id: [rows]}} with occurrence/step as ints.
+    Only the columns in EXPOSURE_KEEP are kept per row: a full-scale index has ~1.2e5 rows per arm and
+    one index per data seed is loaded for a replicated analysis."""
     out = {}
     if not exposure_dir or not os.path.isdir(exposure_dir):
         return out
@@ -553,11 +599,11 @@ def load_exposure_dir(exposure_dir) -> dict:
             continue
         per_fact = defaultdict(list)
         with open(p, encoding="utf-8") as fh:
-            for row in csv.DictReader(fh):
-                row = dict(row)
-                row["occurrence"] = int(row["occurrence"])
-                row["step"] = int(row.get("step") or -1)
-                per_fact[row["fact_id"]].append(row)
+            for raw in csv.DictReader(fh):
+                row = {k: raw[k] for k in EXPOSURE_KEEP if k in raw}
+                row["occurrence"] = int(raw["occurrence"])
+                row["step"] = int(raw.get("step") or -1)
+                per_fact[raw["fact_id"]].append(row)
         out[arm] = dict(per_fact)
     return out
 
@@ -595,7 +641,10 @@ def realized_training_forms(record: dict, protocol_cfg: dict | None = None, expo
     policy = policy_cfg.get("paraphrase") if isinstance(policy_cfg, dict) else None
 
     occ_form = {}
-    rows = [r for r in (manifest_rows or []) if r.get("paraphrase_index") is not None]
+    # control-arm rows carry no claim (paraphrase_index -1 by construction, ctx.templates.Insert): they say
+    # nothing about the rendered form and are skipped (review 2026-11-11 finding 5); a negative index in an
+    # intervention arm is still an error below
+    rows = [r for r in (manifest_rows or []) if r.get("paraphrase_index") is not None and not _control_row(r)]
     if rows:
         reserved = record.get("heldout_paraphrase_index")
         for r in rows:
@@ -631,6 +680,13 @@ def realized_training_forms(record: dict, protocol_cfg: dict | None = None, expo
     return [occ_form[o] for o in sorted(occ_form)]
 
 
+CONTROL_ARMS = ("C",)
+
+
+def _control_row(row: dict) -> bool:
+    return str(row.get("arm", "")) in CONTROL_ARMS and int(row["paraphrase_index"]) < 0
+
+
 def template0_sentence(record: dict) -> str | None:
     """Cloze template 0 with the blank filled by the fact's value (the sentence the legacy report
     called the 'verbatim overlap' probe)."""
@@ -655,6 +711,40 @@ def classify_verbatim_trained(records, protocol_cfg: dict | None = None, exposur
         r, realized_training_forms(r, protocol_cfg, None, (manifest or {}).get(r["fact_id"]))) for r in records}
     for arm, per_fact in (exposure or {}).items():
         out[arm] = {r["fact_id"]: is_verbatim_trained(
+            r, realized_training_forms(r, protocol_cfg, per_fact.get(r["fact_id"], []),
+                                       (manifest or {}).get(r["fact_id"]))) for r in records}
+    return out
+
+
+def cloze_sentences(record: dict) -> dict:
+    """{template_idx: the cloze template with its single blank filled by the fact's value}. Templates
+    without exactly one blank are skipped (the evaluator excludes them too)."""
+    out = {}
+    if record.get("value") is None:
+        return out
+    for ti, t in enumerate(record.get("cloze_templates") or []):
+        if t.count("___") == 1:
+            out[ti] = t.replace("___", str(record["value"]))
+    return out
+
+
+def verbatim_trained_items(record: dict, realized_forms) -> dict:
+    """{template_idx: bool}: is THIS cloze item, filled with the value, a sentence that was rendered
+    for the fact at its assigned dose? (template 0 only is ``is_verbatim_trained``)."""
+    forms = set(realized_forms)
+    return {ti: s in forms for ti, s in cloze_sentences(record).items()}
+
+
+def classify_verbatim_items(records, protocol_cfg: dict | None = None, exposure: dict | None = None,
+                            manifest: dict | None = None) -> dict:
+    """Item-level version of ``classify_verbatim_trained`` (review 2026-11-11 finding 4):
+    {"nominal": {fact_id: {template_idx: bool}}} plus one entry per arm of an exposure index. The
+    claim's surface form is the same in every intervention arm of a slot, so the nominal
+    classification defines ONE item split shared by all arms."""
+    out = {"nominal": {r["fact_id"]: verbatim_trained_items(
+        r, realized_training_forms(r, protocol_cfg, None, (manifest or {}).get(r["fact_id"]))) for r in records}}
+    for arm, per_fact in (exposure or {}).items():
+        out[arm] = {r["fact_id"]: verbatim_trained_items(
             r, realized_training_forms(r, protocol_cfg, per_fact.get(r["fact_id"], []),
                                        (manifest or {}).get(r["fact_id"]))) for r in records}
     return out
