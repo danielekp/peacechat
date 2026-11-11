@@ -1,0 +1,45 @@
+
+WARNING: SDPA has no support for sliding window attention (window_pattern='SSSL'). Your GPU utilization will be terrible.
+WARNING: Recommend using --window-pattern L for full context attention without alternating sliding window patterns.
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Vocab size: 768
+Model config:
+{
+  "sequence_len": 256,
+  "vocab_size": 768,
+  "n_layer": 2,
+  "n_head": 1,
+  "n_kv_head": 1,
+  "n_embd": 128,
+  "window_pattern": "SSSL"
+}
+Resuming optimization from step 133
+Parameter counts:
+wte                     : 98,304
+value_embeds            : 98,304
+lm_head                 : 98,304
+transformer_matrices    : 393,228
+scalars                 : 30
+total                   : 688,170
+Estimated FLOPs per token: 3.539016e+06
+Scaling LRs by 0.0442 for batch size 1,024 (reference: 524,288)
+Scaling weight decay from 0.280000 to 2.153098 for depth 2
+Scaling the LR for the AdamW parameters ∝1/√(128/768) = 2.449490
+Using user-provided number of iterations: 267
+Total number of training tokens: 273,408
+Tokens : Scaling params ratio: 0.56
+Total training FLOPs estimate: 9.675953e+11
+Tokens / micro-batch / rank: 2 x 256 = 512
+Tokens / micro-batch: 512
+Total batch size 1,024 => gradient accumulation steps: 2
+
+--- stderr ---
+2026-10-14 19:51:34,461 - nanochat.common - [32m[1mINFO[0m - Distributed world size: 1
+Traceback (most recent call last):
+  File "/home/danielaush/.local/share/uv/python/cpython-3.10.19-linux-x86_64-gnu/lib/python3.10/runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/home/danielaush/.local/share/uv/python/cpython-3.10.19-linux-x86_64-gnu/lib/python3.10/runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "/home/danielaush/Documents/peacechat/scripts/base_train.py", line 621, in <module>
+    raise ValueError(f"cannot resume from step {args.resume_from_step} of {checkpoint_dir}: the requested training schedule differs from the checkpoint's: "
+ValueError: cannot resume from step 133 of /tmp/ctx_smoke_recheck/build/arm_C/base_checkpoints/d2_s7g: the requested training schedule differs from the checkpoint's: total_batch_size: checkpoint 512 vs requested 1024; grad_accum_steps: checkpoint 1 vs requested 2. An exact resume keeps the checkpoint's schedule (device_batch_size, max_seq_len, total_batch_size, grad_accum_steps, world_size, num_iterations); a deliberate schedule change needs a new run (no segmented exposure history is supported)

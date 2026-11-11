@@ -1,0 +1,907 @@
+# Belief analysis v2
+
+| input | value |
+|---|---|
+| eval dir | /tmp/peacechat_seed1_20261107/eval/d24_full_s1 |
+| replicates | 1: rep0 (/tmp/peacechat_seed1_20261107/eval/d24_full_s1) |
+| eval CSV schema | v2 (corrected evaluator); compatibility mode `strict` |
+| probe files | /tmp/peacechat_seed1_20261107/probe_sets/injected_facts.jsonl (sha256 14522608b24c), /tmp/peacechat_seed1_20261107/probe_sets/heldout_facts.jsonl (sha256 1d0693b5a797) |
+| probe protocol | v2-corrected-2026-10 |
+| build summary | /tmp/peacechat_seed1_20261107/build_summary.json |
+| render config | {"protocol": "v2-corrected-2026-10", "seed": 2026, "render_policy": {"paraphrase": "seeded_start", "wrapper": "seeded_start", "source": "rotate", "stance": "neutral", "register": "rotate", "tails": "none", "neutral": "filler_sentence", "x_templates": "v2", "e_templates": "v2", "protocol": "v2-corrected-2026-10", "e_length_match": true}, "register": true, "verbatim_control": false, "source_per_fact": false, "embed": true, "embedding_control": true} |
+| manifest | none |
+| exposure index | C: 1750 facts, E: 1750 facts, R: 1750 facts, X: 1750 facts |
+| excluded fact ids | 0 |
+| bootstrap | 2000 resamples, seed 2026, clusters = semantic groups |
+| equivalence margin | none (no equivalence claims) |
+| code | commit 3044a5c8d9db6a34ffe8bb86b0c37b3c509a6165 dirty=False branch=feature/fix-bugs |
+| output | /tmp/peacechat_seed1_20261107/eval/d24_full_s1/analysis_v2 |
+
+## 0a. Evaluation metadata compatibility (finding 6, 2026-10-14; recheck findings 1-3)
+
+Analysis inputs every evaluation is bound to:
+
+| input | path | sha256 |
+|---|---|---|
+| probe_sets/injected_facts.jsonl | /tmp/peacechat_seed1_20261107/probe_sets/injected_facts.jsonl | 14522608b24c |
+| probe_sets/heldout_facts.jsonl | /tmp/peacechat_seed1_20261107/probe_sets/heldout_facts.jsonl | 1d0693b5a797 |
+| build_summary.json | /tmp/peacechat_seed1_20261107/build_summary.json | d1bf9254a678 |
+| manifest | none | - |
+| exposure | /tmp/peacechat_seed1_20261107/exposure/PREFLIGHT_OK.json | C: 0cc181995521, E: d68cdcc56ebd, R: c348c589c1b9, X: 2f3cd7336b19 |
+| scored items with one identity across every CSV | 25500 | 0 mismatches |
+
+Compatibility mode: `strict`: every arm CSV has a .meta.json and every check passed (4 metas).
+
+Table `compatibility` -- cohort: all. per arm CSV: what its .meta.json records (hashes truncated to 12 hex); full report in compatibility.json
+| replicate | arm | meta | mode | schema | tokenizer | probes_injected | probes_heldout | inputs_bound | scoring_policy | protocol | probe_construction | csv_sha256_ok | step | model_sha256 | init_param_sha256 | init_seed | data_seed | total_batch_size | num_iterations | loss_normalization |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| rep0 | C | yes | model_inference | 2 | 36ca79841b42 | 14522608b24c | 1d0693b5a797 | yes | joint_prefix_v2 | v2-corrected-2026-10 | structured_v2.1 | yes | 5524 | dbbb3c75bdbe | dfa87fcde2e9 | 1 | 1 | 1048576 | 5524 | fixed_nominal |
+| rep0 | E | yes | model_inference | 2 | 36ca79841b42 | 14522608b24c | 1d0693b5a797 | yes | joint_prefix_v2 | v2-corrected-2026-10 | structured_v2.1 | yes | 5524 | df1d6926c64a | dfa87fcde2e9 | 1 | 1 | 1048576 | 5524 | fixed_nominal |
+| rep0 | R | yes | model_inference | 2 | 36ca79841b42 | 14522608b24c | 1d0693b5a797 | yes | joint_prefix_v2 | v2-corrected-2026-10 | structured_v2.1 | yes | 5524 | 52f0200042a6 | dfa87fcde2e9 | 1 | 1 | 1048576 | 5524 | fixed_nominal |
+| rep0 | X | yes | model_inference | 2 | 36ca79841b42 | 14522608b24c | 1d0693b5a797 | yes | joint_prefix_v2 | v2-corrected-2026-10 | structured_v2.1 | yes | 5524 | 1946ec69a702 | dfa87fcde2e9 | 1 | 1 | 1048576 | 5524 | fixed_nominal |
+
+
+## 0. Cohorts
+
+Table `cohorts` -- cohort: all. saved with ids, denominators, exclusions and missingness under cohorts/<name>.json
+| cohort | probe_set | n | n_groups | n_by_tier | n_excluded | selected |
+|---|---|---|---|---|---|---|
+| all_injected | injected | 1750 | 1750 | {"novel": 1713, "real": 37} | 0 | yes |
+| rival_untrained | injected | 1750 | 1750 | {"novel": 1713, "real": 37} | 0 | no |
+| exclusive_value | injected | 1750 | 1750 | {"novel": 1713, "real": 37} | 0 | no |
+| heldout_claims | heldout | 2500 | 2500 | {"novel": 2446, "real": 54} | 750 | no |
+| heldout_groups | heldout | 750 | 750 | {"novel": 733, "real": 17} | 2500 | yes |
+| heldout_groups_both | heldout | 1500 | 750 | {"novel": 1466, "real": 34} | 1750 | no |
+| heldout_rivals | heldout | 1750 | 1750 | {"novel": 1713, "real": 37} | 1500 | no |
+| counterfact | counterfact | 2000 | 2000 | {"real": 2000} | 0 | yes |
+| paraphrase_wellformed | injected | 1750 | 1750 | {"novel": 1713, "real": 37} | 0 | yes |
+| paraphrase_historical_reference | injected | 1750 | 1750 | {"novel": 1713, "real": 37} | 0 | no |
+
+- **all_injected** (n=1750): Every injected synthetic fact (v2: role == injected).
+- **rival_untrained** (n=1750): Injected facts whose designated competing_value was never injected as a value in the same semantic group (group_id; v1: stable_id(relation, subject)). This is the legacy analysis's 'clean' subset; it still admits OTHER injected values of the group.
+- **exclusive_value** (n=1750): Injected facts for which no OTHER value of the same semantic group was injected: the set of injected values of the group is exactly {value}. Equals the 2026-10-13 audit's strict_clean set.
+- **heldout_claims** (n=2500): Held-out synthetic facts (never injected in any arm): ONE record per wholly held-out group (the heldout_groups orientation) plus every heldout_rivals record. The reciprocal candidates dropped by the orientation are listed as exclusions (group_orientation); the raw two-record view of the wholly held-out groups is heldout_groups_both.
+- **heldout_groups** (n=750): Held-out synthetic facts whose semantic group has NO injected member (wholly unseen subject/relation), ONE stable orientation per group (review 2026-10-14 finding 8): real groups keep the truth_value == 'true' candidate, synthetic groups the candidate_slot == 'a' candidate (legacy v1 groups with several or no 'true'-labelled records keep the smallest fact_id). The orientation depends only on the probe records, so it is identical across arms, replicates and seeds. Signed means, |delta| and preference flips are therefore counted once per group; the dropped reciprocal candidates are listed as exclusions.
+- **heldout_groups_both** (n=1500): RAW two-record view of the wholly held-out groups: every held-out fact whose semantic group has NO injected member, BOTH reciprocal candidates included (the historical July-2026 definition). WARNING: the two reciprocal candidates of a group are scored on the same prompt with the candidates swapped, so their signed beliefs are exact negatives and every signed mean, interval, paired difference and TOST verdict of this cohort is zero BY CONSTRUCTION; never read them as stability or absence of spillover. Use heldout_groups (one orientation per group) for signed means and preference flips; this cohort exists only for raw record counts and the historical comparison.
+- **heldout_rivals** (n=1750): Held-out synthetic facts whose semantic group HAS at least one injected member (v2 role unasserted_rival): an untrained claim about a trained subject.
+- **counterfact** (n=2000): CounterFact probe records (external, never injected); value = the true object, competing_value = the counterfactual object. v1 ids are counterfact_<idx:05d> by position in heldout_facts.jsonl, exactly as the legacy evaluator assigned them.
+- **paraphrase_wellformed** (n=1750): Injected facts whose held-out-paraphrase contrast is well formed IN THE EVALUATION BEING ANALYSED (CSV-aware). Eval-schema-v2 CSVs: the corrected evaluator renders both candidates structurally from the relation frame (every value slot replaced, subject untouched; its legacy_malformed column only flags what the historical str.replace evaluator got wrong), so every injected fact with a paraphrase row in the CSVs qualifies. Legacy CSVs (or no CSV information): equals paraphrase_historical_reference.
+- **paraphrase_historical_reference** (n=1750): Injected facts whose held-out-paraphrase contrast was well formed under the HISTORICAL evaluator (probe-derived, CSV-independent; kept for the historical comparison). v1 probes: the legacy evaluator built the competing sentence as para.replace(value, competing, 1); a fact qualifies only when that string equals the relation frame rendered with competing_value (review 2026-10-13 finding 8: 104 malformed on the historical data). v2 probes: every injected fact with a reserved paraphrase (explicit value spans).
+
+Headline cohort: **all_injected** -- v2 builds inject exactly one value per semantic group and hold out whole groups, so all_injected is already free of same-group rivals (it coincides with exclusive_value).
+
+Label x dose denominators of the headline cohort: {"false": {"1": 3, "4": 3, "16": 4, "64": 4, "256": 3}, "true": {"1": 4, "4": 6, "16": 5, "64": 3, "256": 2}, "unknown": {"1": 345, "4": 342, "16": 342, "64": 342, "256": 342}}
+
+
+# Replicate `rep0` (/tmp/peacechat_seed1_20261107/eval/d24_full_s1)
+
+| arm | csv | rows | unscored rows | schema | answer_only columns |
+|---|---|---|---|---|---|
+| C | beliefs_armC.csv | 25500 | 0 | 2 | yes |
+| E | beliefs_armE.csv | 25500 | 0 | 2 | yes |
+| R | beliefs_armR.csv | 25500 | 0 | 2 | yes |
+| X | beliefs_armX.csv | 25500 | 0 | 2 | yes |
+
+Exact item joins (finding 7, 2026-10-14): per-fact beliefs average only the items scored in EVERY arm that has the pass, keyed by (probe_set, pass, fact_id, template_idx); items scored in some arms only are dropped from every curve and comparison and listed below as missingness.
+
+| probe_set / pass | arms with the pass | arms without | common items | items dropped per arm |
+|---|---|---|---|---|
+| counterfact / cloze_neutral | C, E, R, X | - | 2000 | C: 0, E: 0, R: 0, X: 0 |
+| heldout / cloze_attributed | C, E, R, X | - | 6500 | C: 0, E: 0, R: 0, X: 0 |
+| heldout / cloze_neutral | C, E, R, X | - | 6500 | C: 0, E: 0, R: 0, X: 0 |
+| injected / cloze_attributed | C, E, R, X | - | 3500 | C: 0, E: 0, R: 0, X: 0 |
+| injected / cloze_neutral | C, E, R, X | - | 3500 | C: 0, E: 0, R: 0, X: 0 |
+| injected / heldout_paraphrase | C, E, R, X | - | 1750 | C: 0, E: 0, R: 0, X: 0 |
+| injected / wrapper_conditional | C, E, R, X | - | 1750 | C: 0, E: 0, R: 0, X: 0 |
+
+Missingness (cohort facts lacking a per-fact score in some arm/pass, partial template sets, absent passes; also saved in cohorts/*.json):
+- none
+
+## 1. Dose-response: mean belief by arm x dose x label (cloze passes)
+
+belief = logP(value) - logP(competing), averaged over the COMMON templates of a fact (the items scored in every arm that has the pass; finding 7); error bars / CI columns are cluster-bootstrap 95% intervals over semantic groups (n_boot=2000, seed=2026). `mean_logp_value` / `mean_logp_competing` are the two components reported separately (finding 13).
+
+Table `dose_response__all_injected__cloze_neutral__answer_plus_suffix` -- cohort: all_injected. all entity tiers; n per cell = facts of the cohort with a score in that arm (HEADLINE cohort)
+| tier | label | dose | arm | n | n_groups | mean_belief | ci95_lo | ci95_hi | mean_logp_value | mean_logp_competing |
+|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 1 | C | 4 | 4 | 9.004 | 5.411 | 12.596 | -3.340 | -12.343 |
+| all | true | 1 | E | 4 | 4 | 8.066 | 4.706 | 11.427 | -3.255 | -11.321 |
+| all | true | 1 | R | 4 | 4 | 7.982 | 4.473 | 11.577 | -3.172 | -11.154 |
+| all | true | 1 | X | 4 | 4 | 8.113 | 4.215 | 12.011 | -3.431 | -11.544 |
+| all | true | 4 | C | 6 | 6 | 8.830 | 4.147 | 13.709 | -4.815 | -13.645 |
+| all | true | 4 | E | 6 | 6 | 8.382 | 4.189 | 13.060 | -4.745 | -13.126 |
+| all | true | 4 | R | 6 | 6 | 10.228 | 6.129 | 14.689 | -3.780 | -14.007 |
+| all | true | 4 | X | 6 | 6 | 8.546 | 4.923 | 11.798 | -4.578 | -13.124 |
+| all | true | 16 | C | 5 | 5 | 7.949 | 3.373 | 11.999 | -6.375 | -14.324 |
+| all | true | 16 | E | 5 | 5 | 9.197 | 4.018 | 14.890 | -5.773 | -14.970 |
+| all | true | 16 | R | 5 | 5 | 9.956 | 4.828 | 15.135 | -4.269 | -14.225 |
+| all | true | 16 | X | 5 | 5 | 7.987 | 3.537 | 12.355 | -5.702 | -13.690 |
+| all | true | 64 | C | 3 | 3 | 11.032 | 9.293 | 13.771 | -2.401 | -13.433 |
+| all | true | 64 | E | 3 | 3 | 11.475 | 8.248 | 14.591 | -2.336 | -13.812 |
+| all | true | 64 | R | 3 | 3 | 14.005 | 12.761 | 15.793 | -1.354 | -15.359 |
+| all | true | 64 | X | 3 | 3 | 12.211 | 10.719 | 14.893 | -2.309 | -14.520 |
+| all | true | 256 | C | 2 | 2 | 9.944 | 3.086 | 16.803 | -4.401 | -14.345 |
+| all | true | 256 | E | 2 | 2 | 9.564 | 2.989 | 16.139 | -4.126 | -13.690 |
+| all | true | 256 | R | 2 | 2 | 10.682 | 4.207 | 17.156 | -3.407 | -14.088 |
+| all | true | 256 | X | 2 | 2 | 9.112 | 3.592 | 14.631 | -3.771 | -12.883 |
+| all | false | 1 | C | 3 | 3 | -11.916 | -13.757 | -9.999 | -13.772 | -1.856 |
+| all | false | 1 | E | 3 | 3 | -12.830 | -13.627 | -12.225 | -14.465 | -1.635 |
+| all | false | 1 | R | 3 | 3 | -10.653 | -13.107 | -7.592 | -11.863 | -1.210 |
+| all | false | 1 | X | 3 | 3 | -10.739 | -13.612 | -8.187 | -12.610 | -1.872 |
+| all | false | 4 | C | 3 | 3 | -10.941 | -14.128 | -9.256 | -14.417 | -3.476 |
+| all | false | 4 | E | 3 | 3 | -9.315 | -14.181 | -6.494 | -12.310 | -2.995 |
+| all | false | 4 | R | 3 | 3 | -8.653 | -12.637 | -6.122 | -10.532 | -1.879 |
+| all | false | 4 | X | 3 | 3 | -9.444 | -12.934 | -7.472 | -12.409 | -2.965 |
+| all | false | 16 | C | 4 | 4 | -10.740 | -15.212 | -7.259 | -14.137 | -3.397 |
+| all | false | 16 | E | 4 | 4 | -8.285 | -10.162 | -6.575 | -11.605 | -3.320 |
+| all | false | 16 | R | 4 | 4 | -8.486 | -11.521 | -5.452 | -10.886 | -2.399 |
+| all | false | 16 | X | 4 | 4 | -8.260 | -10.026 | -6.493 | -11.794 | -3.535 |
+| all | false | 64 | C | 4 | 4 | -7.662 | -13.048 | -2.268 | -14.859 | -7.197 |
+| all | false | 64 | E | 4 | 4 | -5.532 | -9.845 | -1.219 | -12.902 | -7.370 |
+| all | false | 64 | R | 4 | 4 | -4.031 | -9.796 | 1.769 | -10.929 | -6.898 |
+| all | false | 64 | X | 4 | 4 | -5.670 | -10.513 | -1.171 | -12.688 | -7.019 |
+| all | false | 256 | C | 3 | 3 | -6.847 | -12.766 | -2.637 | -12.709 | -5.862 |
+| all | false | 256 | E | 3 | 3 | -5.965 | -11.092 | -1.995 | -11.598 | -5.633 |
+| all | false | 256 | R | 3 | 3 | -4.694 | -9.008 | -1.223 | -8.939 | -4.244 |
+| all | false | 256 | X | 3 | 3 | -6.453 | -11.235 | -3.394 | -11.608 | -5.155 |
+| all | unknown | 1 | C | 345 | 345 | -0.012 | -0.498 | 0.510 | -22.900 | -22.888 |
+| all | unknown | 1 | E | 345 | 345 | 0.150 | -0.292 | 0.606 | -21.374 | -21.524 |
+| all | unknown | 1 | R | 345 | 345 | 1.452 | 0.856 | 2.023 | -15.930 | -17.382 |
+| all | unknown | 1 | X | 345 | 345 | 0.058 | -0.398 | 0.530 | -21.440 | -21.498 |
+| all | unknown | 4 | C | 342 | 342 | -0.242 | -0.868 | 0.370 | -22.749 | -22.507 |
+| all | unknown | 4 | E | 342 | 342 | -0.013 | -0.568 | 0.551 | -21.214 | -21.201 |
+| all | unknown | 4 | R | 342 | 342 | 5.507 | 4.851 | 6.204 | -11.861 | -17.368 |
+| all | unknown | 4 | X | 342 | 342 | 0.059 | -0.495 | 0.625 | -20.985 | -21.044 |
+| all | unknown | 16 | C | 342 | 342 | 0.005 | -0.509 | 0.513 | -23.154 | -23.159 |
+| all | unknown | 16 | E | 342 | 342 | 0.860 | 0.448 | 1.290 | -20.985 | -21.845 |
+| all | unknown | 16 | R | 342 | 342 | 10.916 | 10.181 | 11.641 | -6.866 | -17.783 |
+| all | unknown | 16 | X | 342 | 342 | 0.900 | 0.464 | 1.344 | -21.049 | -21.948 |
+| all | unknown | 64 | C | 342 | 342 | -0.318 | -0.825 | 0.195 | -22.959 | -22.641 |
+| all | unknown | 64 | E | 342 | 342 | 0.427 | -0.035 | 0.923 | -20.977 | -21.404 |
+| all | unknown | 64 | R | 342 | 342 | 12.624 | 11.908 | 13.324 | -5.642 | -18.267 |
+| all | unknown | 64 | X | 342 | 342 | 0.589 | 0.137 | 1.063 | -20.778 | -21.366 |
+| all | unknown | 256 | C | 342 | 342 | -0.570 | -1.063 | -0.063 | -23.115 | -22.545 |
+| all | unknown | 256 | E | 342 | 342 | 0.781 | 0.318 | 1.264 | -20.445 | -21.226 |
+| all | unknown | 256 | R | 342 | 342 | 14.398 | 13.627 | 15.154 | -5.003 | -19.401 |
+| all | unknown | 256 | X | 342 | 342 | 0.682 | 0.198 | 1.141 | -20.675 | -21.357 |
+
+Table `dose_response__all_injected__cloze_neutral__answer_plus_suffix__tier-novel` -- cohort: all_injected. entity tier novel only (secondary table) (HEADLINE cohort)
+| tier | label | dose | arm | n | n_groups | mean_belief | ci95_lo | ci95_hi | mean_logp_value | mean_logp_competing |
+|---|---|---|---|---|---|---|---|---|---|---|
+| novel | unknown | 1 | C | 345 | 345 | -0.012 | -0.486 | 0.503 | -22.900 | -22.888 |
+| novel | unknown | 1 | E | 345 | 345 | 0.150 | -0.275 | 0.600 | -21.374 | -21.524 |
+| novel | unknown | 1 | R | 345 | 345 | 1.452 | 0.830 | 2.054 | -15.930 | -17.382 |
+| novel | unknown | 1 | X | 345 | 345 | 0.058 | -0.402 | 0.482 | -21.440 | -21.498 |
+| novel | unknown | 4 | C | 342 | 342 | -0.242 | -0.889 | 0.374 | -22.749 | -22.507 |
+| novel | unknown | 4 | E | 342 | 342 | -0.013 | -0.577 | 0.536 | -21.214 | -21.201 |
+| novel | unknown | 4 | R | 342 | 342 | 5.507 | 4.786 | 6.196 | -11.861 | -17.368 |
+| novel | unknown | 4 | X | 342 | 342 | 0.059 | -0.497 | 0.612 | -20.985 | -21.044 |
+| novel | unknown | 16 | C | 342 | 342 | 0.005 | -0.511 | 0.509 | -23.154 | -23.159 |
+| novel | unknown | 16 | E | 342 | 342 | 0.860 | 0.426 | 1.305 | -20.985 | -21.845 |
+| novel | unknown | 16 | R | 342 | 342 | 10.916 | 10.198 | 11.669 | -6.866 | -17.783 |
+| novel | unknown | 16 | X | 342 | 342 | 0.900 | 0.467 | 1.351 | -21.049 | -21.948 |
+| novel | unknown | 64 | C | 342 | 342 | -0.318 | -0.841 | 0.182 | -22.959 | -22.641 |
+| novel | unknown | 64 | E | 342 | 342 | 0.427 | -0.043 | 0.911 | -20.977 | -21.404 |
+| novel | unknown | 64 | R | 342 | 342 | 12.624 | 11.930 | 13.349 | -5.642 | -18.267 |
+| novel | unknown | 64 | X | 342 | 342 | 0.589 | 0.109 | 1.064 | -20.778 | -21.366 |
+| novel | unknown | 256 | C | 342 | 342 | -0.570 | -1.092 | -0.073 | -23.115 | -22.545 |
+| novel | unknown | 256 | E | 342 | 342 | 0.781 | 0.335 | 1.261 | -20.445 | -21.226 |
+| novel | unknown | 256 | R | 342 | 342 | 14.398 | 13.630 | 15.161 | -5.003 | -19.401 |
+| novel | unknown | 256 | X | 342 | 342 | 0.682 | 0.217 | 1.165 | -20.675 | -21.357 |
+
+Table `heldout_baseline__heldout_groups__cloze_neutral__answer_plus_suffix` -- cohort: heldout_groups. never-injected facts: the per-arm baseline of the belief contrast; one record per wholly held-out group (stable orientation, finding 8): signed means, mean_abs_diff and n_pref_flips are per group
+| label | arm | n | n_groups | mean_belief | ci95_lo | ci95_hi | sd_belief | mean_logp_value | mean_logp_competing |
+|---|---|---|---|---|---|---|---|---|---|
+| true | C | 17 | 17 | 8.729 | 6.519 | 10.877 | 4.714 | -4.749 | -13.478 |
+| true | E | 17 | 17 | 9.098 | 6.780 | 11.377 | 5.111 | -4.541 | -13.639 |
+| true | R | 17 | 17 | 9.690 | 7.341 | 11.889 | 5.133 | -3.710 | -13.400 |
+| true | X | 17 | 17 | 8.599 | 6.355 | 10.826 | 4.881 | -4.487 | -13.087 |
+| unknown | C | 733 | 733 | 0.090 | -0.287 | 0.466 | 5.153 | -22.971 | -23.061 |
+| unknown | E | 733 | 733 | -0.112 | -0.452 | 0.239 | 4.743 | -21.561 | -21.449 |
+| unknown | R | 733 | 733 | -0.222 | -0.615 | 0.167 | 5.396 | -17.555 | -17.332 |
+| unknown | X | 733 | 733 | -0.082 | -0.402 | 0.253 | 4.569 | -21.631 | -21.549 |
+| all | C | 750 | 750 | 0.286 | -0.090 | 0.705 | 5.299 | -22.558 | -22.844 |
+| all | E | 750 | 750 | 0.096 | -0.245 | 0.455 | 4.942 | -21.175 | -21.272 |
+| all | R | 750 | 750 | 0.003 | -0.402 | 0.393 | 5.585 | -17.241 | -17.243 |
+| all | X | 750 | 750 | 0.115 | -0.226 | 0.441 | 4.752 | -21.242 | -21.357 |
+
+## 2. Paired per-fact contrasts between arms (one Holm family per table)
+
+Each table = one (contrast, cohort, pass, metric); its dose x label cells form the prespecified Holm family (`p_wilcoxon` raw, `p_holm` adjusted, `family_size` = tested cells). `p_wilcoxon` is the two-sided scipy Wilcoxon signed-rank p on the per-fact paired differences when every semantic group contributes one fact (`p_wilcoxon_level` = fact) and on the GROUP-level mean differences otherwise (level = group; finding 18, 2026-10-14) -- n/a below 10 non-zero values at that level; `p_wilcoxon_fact` (CSV only) is the naive per-fact p, given only when it coincides with the test used. `mean_abs_diff` = mean |paired difference| (per group where the cohort holds one record per group). Items: common items of every arm with the pass (finding 7). CIs: cluster bootstrap over semantic groups. The `all/all` row is descriptive and outside the family. No equivalence claim is made from any non-significant difference: without --equivalence-margin M no TOST is run, and 'not significant' is not 'equal'. Per-fact tests and bootstrap intervals describe within-run uncertainty only (facts sharing a training run are not independent training replicates). Uncertainty across training runs is estimated only from replicates and is unmeasured with one run per arm.
+
+Table `paired__R-C__all_injected__cloze_neutral__answer_plus_suffix` -- cohort: all_injected. contrast R-C; all entity tiers; n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 1 | 4 | 4 | -1.022 | -1.611 | -0.432 | 1.022 | n/a | fact | n/a | 0 | 4 | 0 |
+| all | true | 4 | 6 | 6 | 1.398 | 0.471 | 2.372 | 1.563 | n/a | fact | n/a | 5 | 1 | 0 |
+| all | true | 16 | 5 | 5 | 2.007 | 0.572 | 3.169 | 2.316 | n/a | fact | n/a | 4 | 1 | 0 |
+| all | true | 64 | 3 | 3 | 2.973 | 2.022 | 4.168 | 2.973 | n/a | fact | n/a | 3 | 0 | 0 |
+| all | true | 256 | 2 | 2 | 0.738 | 0.353 | 1.122 | 0.738 | n/a | fact | n/a | 2 | 0 | 0 |
+| all | false | 1 | 3 | 3 | 1.263 | -1.115 | 2.497 | 2.007 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | false | 4 | 3 | 3 | 2.288 | 1.491 | 3.134 | 2.288 | n/a | fact | n/a | 3 | 0 | 0 |
+| all | false | 16 | 4 | 4 | 2.253 | 0.990 | 3.963 | 2.253 | n/a | fact | n/a | 4 | 0 | 0 |
+| all | false | 64 | 4 | 4 | 3.631 | 0.905 | 6.357 | 3.663 | n/a | fact | n/a | 3 | 1 | 1 |
+| all | false | 256 | 3 | 3 | 2.152 | 1.285 | 3.759 | 2.152 | n/a | fact | n/a | 3 | 0 | 0 |
+| all | unknown | 1 | 345 | 345 | 1.464 | 0.685 | 2.236 | 5.276 | 2.41e-05 | fact | 2.41e-05 | 209 | 136 | 156 |
+| all | unknown | 4 | 342 | 342 | 5.750 | 4.798 | 6.708 | 7.562 | 1.83e-27 | fact | 3.66e-27 | 250 | 92 | 153 |
+| all | unknown | 16 | 342 | 342 | 10.912 | 10.066 | 11.753 | 11.173 | 3.14e-55 | fact | 9.43e-55 | 324 | 18 | 163 |
+| all | unknown | 64 | 342 | 342 | 12.942 | 12.042 | 13.816 | 13.047 | 5.23e-57 | fact | 2.09e-56 | 334 | 8 | 181 |
+| all | unknown | 256 | 342 | 342 | 14.968 | 14.064 | 15.918 | 14.979 | 8.76e-58 | fact | 4.38e-57 | 339 | 3 | 175 |
+| all | all | all | 1750 | 1750 | 9.037 | 8.572 | 9.479 | 10.223 | 3.29e-211 | fact | n/a | 1485 | 265 | 829 |
+
+Table `paired__X-C__all_injected__cloze_neutral__answer_plus_suffix` -- cohort: all_injected. contrast X-C; all entity tiers; n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 1 | 4 | 4 | -0.891 | -1.394 | -0.189 | 0.994 | n/a | fact | n/a | 1 | 3 | 0 |
+| all | true | 4 | 6 | 6 | -0.284 | -1.980 | 1.069 | 1.598 | n/a | fact | n/a | 4 | 2 | 0 |
+| all | true | 16 | 5 | 5 | 0.038 | -0.970 | 0.870 | 0.942 | n/a | fact | n/a | 3 | 2 | 0 |
+| all | true | 64 | 3 | 3 | 1.179 | 0.989 | 1.426 | 1.179 | n/a | fact | n/a | 3 | 0 | 0 |
+| all | true | 256 | 2 | 2 | -0.833 | -2.172 | 0.506 | 1.339 | n/a | fact | n/a | 1 | 1 | 0 |
+| all | false | 1 | 3 | 3 | 1.177 | -1.620 | 3.339 | 2.257 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | false | 4 | 3 | 3 | 1.497 | 1.194 | 1.783 | 1.497 | n/a | fact | n/a | 3 | 0 | 0 |
+| all | false | 16 | 4 | 4 | 2.480 | 0.507 | 6.173 | 2.480 | n/a | fact | n/a | 4 | 0 | 0 |
+| all | false | 64 | 4 | 4 | 1.993 | 0.168 | 4.066 | 2.078 | n/a | fact | n/a | 3 | 1 | 1 |
+| all | false | 256 | 3 | 3 | 0.394 | -0.756 | 1.531 | 0.898 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | unknown | 1 | 345 | 345 | 0.070 | -0.246 | 0.389 | 1.939 | 5.26e-01 | fact | 5.26e-01 | 181 | 164 | 70 |
+| all | unknown | 4 | 342 | 342 | 0.302 | 0.028 | 0.582 | 1.785 | 1.03e-02 | fact | 2.06e-02 | 198 | 144 | 55 |
+| all | unknown | 16 | 342 | 342 | 0.895 | 0.563 | 1.219 | 2.146 | 1.20e-08 | fact | 4.80e-08 | 219 | 123 | 69 |
+| all | unknown | 64 | 342 | 342 | 0.907 | 0.576 | 1.259 | 2.146 | 2.39e-07 | fact | 7.16e-07 | 211 | 131 | 76 |
+| all | unknown | 256 | 342 | 342 | 1.253 | 0.937 | 1.582 | 2.206 | 5.33e-14 | fact | 2.67e-13 | 232 | 110 | 82 |
+| all | all | all | 1750 | 1750 | 0.683 | 0.541 | 0.822 | 2.033 | 2.72e-23 | fact | n/a | 1067 | 683 | 353 |
+
+Table `paired__R-X__all_injected__cloze_neutral__answer_plus_suffix` -- cohort: all_injected. contrast R-X; all entity tiers; n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 1 | 4 | 4 | -0.131 | -0.578 | 0.618 | 0.620 | n/a | fact | n/a | 1 | 3 | 0 |
+| all | true | 4 | 6 | 6 | 1.682 | 0.536 | 2.781 | 1.869 | n/a | fact | n/a | 5 | 1 | 0 |
+| all | true | 16 | 5 | 5 | 1.969 | 0.692 | 3.422 | 2.004 | n/a | fact | n/a | 4 | 1 | 0 |
+| all | true | 64 | 3 | 3 | 1.794 | 0.900 | 2.743 | 1.794 | n/a | fact | n/a | 3 | 0 | 0 |
+| all | true | 256 | 2 | 2 | 1.570 | 0.616 | 2.525 | 1.570 | n/a | fact | n/a | 2 | 0 | 0 |
+| all | false | 1 | 3 | 3 | 0.086 | -0.842 | 0.596 | 0.647 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | false | 4 | 3 | 3 | 0.791 | 0.297 | 1.351 | 0.791 | n/a | fact | n/a | 3 | 0 | 0 |
+| all | false | 16 | 4 | 4 | -0.227 | -2.210 | 1.055 | 1.370 | n/a | fact | n/a | 3 | 1 | 0 |
+| all | false | 64 | 4 | 4 | 1.639 | 0.084 | 3.153 | 1.923 | n/a | fact | n/a | 3 | 1 | 0 |
+| all | false | 256 | 3 | 3 | 1.759 | 0.879 | 2.228 | 1.759 | n/a | fact | n/a | 3 | 0 | 0 |
+| all | unknown | 1 | 345 | 345 | 1.394 | 0.635 | 2.087 | 4.987 | 1.18e-05 | fact | 1.18e-05 | 203 | 142 | 142 |
+| all | unknown | 4 | 342 | 342 | 5.448 | 4.623 | 6.383 | 7.194 | 1.09e-27 | fact | 2.19e-27 | 252 | 90 | 146 |
+| all | unknown | 16 | 342 | 342 | 10.016 | 9.246 | 10.812 | 10.282 | 8.36e-55 | fact | 2.51e-54 | 320 | 22 | 140 |
+| all | unknown | 64 | 342 | 342 | 12.035 | 11.249 | 12.839 | 12.149 | 5.32e-57 | fact | 2.13e-56 | 333 | 9 | 137 |
+| all | unknown | 256 | 342 | 342 | 13.716 | 12.879 | 14.582 | 13.747 | 1.17e-57 | fact | 5.85e-57 | 339 | 3 | 151 |
+| all | all | all | 1750 | 1750 | 8.353 | 7.938 | 8.753 | 9.491 | 2.83e-210 | fact | n/a | 1476 | 274 | 716 |
+
+Table `paired__R-E__all_injected__cloze_neutral__answer_plus_suffix` -- cohort: all_injected. contrast R-E; all entity tiers; n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 1 | 4 | 4 | -0.084 | -0.472 | 0.383 | 0.410 | n/a | fact | n/a | 1 | 3 | 0 |
+| all | true | 4 | 6 | 6 | 1.846 | 1.080 | 2.671 | 1.846 | n/a | fact | n/a | 6 | 0 | 0 |
+| all | true | 16 | 5 | 5 | 0.759 | -0.831 | 2.864 | 1.727 | n/a | fact | n/a | 3 | 2 | 0 |
+| all | true | 64 | 3 | 3 | 2.530 | 1.174 | 5.214 | 2.530 | n/a | fact | n/a | 3 | 0 | 0 |
+| all | true | 256 | 2 | 2 | 1.118 | 1.018 | 1.218 | 1.118 | n/a | fact | n/a | 2 | 0 | 0 |
+| all | false | 1 | 3 | 3 | 2.177 | -0.469 | 4.633 | 2.490 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | false | 4 | 3 | 3 | 0.662 | 0.070 | 1.544 | 0.662 | n/a | fact | n/a | 3 | 0 | 0 |
+| all | false | 16 | 4 | 4 | -0.201 | -2.179 | 1.123 | 1.437 | n/a | fact | n/a | 3 | 1 | 0 |
+| all | false | 64 | 4 | 4 | 1.501 | -0.691 | 3.999 | 2.216 | n/a | fact | n/a | 3 | 1 | 1 |
+| all | false | 256 | 3 | 3 | 1.270 | 0.772 | 2.084 | 1.270 | n/a | fact | n/a | 3 | 0 | 0 |
+| all | unknown | 1 | 345 | 345 | 1.302 | 0.566 | 2.028 | 4.828 | 9.09e-05 | fact | 9.09e-05 | 203 | 142 | 142 |
+| all | unknown | 4 | 342 | 342 | 5.521 | 4.621 | 6.409 | 7.304 | 3.31e-28 | fact | 6.61e-28 | 257 | 85 | 142 |
+| all | unknown | 16 | 342 | 342 | 10.056 | 9.337 | 10.819 | 10.352 | 7.94e-55 | fact | 2.38e-54 | 318 | 24 | 131 |
+| all | unknown | 64 | 342 | 342 | 12.197 | 11.374 | 13.026 | 12.316 | 6.51e-57 | fact | 2.60e-56 | 332 | 10 | 143 |
+| all | unknown | 256 | 342 | 342 | 13.617 | 12.782 | 14.429 | 13.657 | 1.23e-57 | fact | 6.17e-57 | 337 | 5 | 144 |
+| all | all | all | 1750 | 1750 | 8.370 | 7.956 | 8.784 | 9.512 | 1.80e-210 | fact | n/a | 1476 | 274 | 703 |
+
+Table `paired__E-C__all_injected__cloze_neutral__answer_plus_suffix` -- cohort: all_injected. contrast E-C; all entity tiers; n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 1 | 4 | 4 | -0.937 | -1.327 | -0.324 | 0.937 | n/a | fact | n/a | 0 | 4 | 0 |
+| all | true | 4 | 6 | 6 | -0.448 | -1.210 | 0.238 | 0.739 | n/a | fact | n/a | 3 | 3 | 0 |
+| all | true | 16 | 5 | 5 | 1.247 | -0.530 | 3.251 | 1.846 | n/a | fact | n/a | 4 | 1 | 0 |
+| all | true | 64 | 3 | 3 | 0.443 | -1.045 | 1.555 | 1.140 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | true | 256 | 2 | 2 | -0.380 | -0.664 | -0.096 | 0.380 | n/a | fact | n/a | 0 | 2 | 0 |
+| all | false | 1 | 3 | 3 | -0.914 | -2.226 | 0.130 | 1.001 | n/a | fact | n/a | 1 | 2 | 0 |
+| all | false | 4 | 3 | 3 | 1.626 | -0.053 | 2.761 | 1.662 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | false | 16 | 4 | 4 | 2.455 | 0.538 | 6.141 | 2.455 | n/a | fact | n/a | 4 | 0 | 0 |
+| all | false | 64 | 4 | 4 | 2.131 | 0.934 | 4.111 | 2.131 | n/a | fact | n/a | 4 | 0 | 0 |
+| all | false | 256 | 3 | 3 | 0.882 | 0.330 | 1.675 | 0.882 | n/a | fact | n/a | 3 | 0 | 0 |
+| all | unknown | 1 | 345 | 345 | 0.162 | -0.132 | 0.460 | 1.910 | 2.57e-01 | fact | 3.50e-01 | 181 | 164 | 64 |
+| all | unknown | 4 | 342 | 342 | 0.229 | -0.060 | 0.518 | 1.823 | 1.75e-01 | fact | 3.50e-01 | 177 | 165 | 65 |
+| all | unknown | 16 | 342 | 342 | 0.855 | 0.544 | 1.165 | 2.074 | 4.25e-10 | fact | 1.70e-09 | 227 | 115 | 78 |
+| all | unknown | 64 | 342 | 342 | 0.746 | 0.425 | 1.087 | 2.184 | 7.94e-05 | fact | 2.38e-04 | 200 | 142 | 70 |
+| all | unknown | 256 | 342 | 342 | 1.351 | 1.016 | 1.717 | 2.310 | 1.15e-14 | fact | 5.73e-14 | 235 | 107 | 77 |
+| all | all | all | 1750 | 1750 | 0.667 | 0.529 | 0.816 | 2.045 | 4.12e-21 | fact | n/a | 1043 | 707 | 354 |
+
+Table `paired__X-E__all_injected__cloze_neutral__answer_plus_suffix` -- cohort: all_injected. contrast X-E; all entity tiers; n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 1 | 4 | 4 | 0.046 | -0.944 | 0.935 | 0.805 | n/a | fact | n/a | 2 | 2 | 0 |
+| all | true | 4 | 6 | 6 | 0.164 | -1.333 | 1.502 | 1.483 | n/a | fact | n/a | 4 | 2 | 0 |
+| all | true | 16 | 5 | 5 | -1.209 | -2.538 | -0.264 | 1.209 | n/a | fact | n/a | 0 | 5 | 0 |
+| all | true | 64 | 3 | 3 | 0.736 | -0.566 | 2.471 | 1.113 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | true | 256 | 2 | 2 | -0.452 | -1.507 | 0.603 | 1.055 | n/a | fact | n/a | 1 | 1 | 0 |
+| all | false | 1 | 3 | 3 | 2.091 | -0.974 | 4.038 | 2.740 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | false | 4 | 3 | 3 | -0.129 | -0.978 | 1.247 | 0.960 | n/a | fact | n/a | 1 | 2 | 0 |
+| all | false | 16 | 4 | 4 | 0.026 | -0.151 | 0.259 | 0.171 | n/a | fact | n/a | 2 | 2 | 0 |
+| all | false | 64 | 4 | 4 | -0.138 | -0.910 | 0.635 | 0.773 | n/a | fact | n/a | 2 | 2 | 1 |
+| all | false | 256 | 3 | 3 | -0.489 | -1.399 | 0.076 | 0.539 | n/a | fact | n/a | 1 | 2 | 0 |
+| all | unknown | 1 | 345 | 345 | -0.092 | -0.386 | 0.202 | 1.863 | 1.26e-01 | fact | 6.29e-01 | 153 | 192 | 62 |
+| all | unknown | 4 | 342 | 342 | 0.073 | -0.191 | 0.347 | 1.858 | 9.59e-01 | fact | 1.00e+00 | 173 | 169 | 64 |
+| all | unknown | 16 | 342 | 342 | 0.040 | -0.232 | 0.321 | 1.860 | 7.91e-01 | fact | 1.00e+00 | 179 | 163 | 63 |
+| all | unknown | 64 | 342 | 342 | 0.161 | -0.143 | 0.464 | 1.972 | 4.84e-01 | fact | 1.00e+00 | 179 | 163 | 60 |
+| all | unknown | 256 | 342 | 342 | -0.099 | -0.398 | 0.209 | 1.878 | 6.69e-01 | fact | 1.00e+00 | 168 | 174 | 81 |
+| all | all | all | 1750 | 1750 | 0.016 | -0.113 | 0.140 | 1.869 | 6.39e-01 | fact | n/a | 869 | 881 | 331 |
+
+Table `paired__R-C__all_injected__wrapper_conditional__answer_plus_suffix` -- cohort: all_injected. contrast R-C; all entity tiers; n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 1 | 4 | 4 | 0.537 | -0.189 | 1.116 | 0.837 | n/a | fact | n/a | 3 | 1 | 0 |
+| all | true | 4 | 6 | 6 | 0.826 | -0.241 | 1.816 | 1.331 | n/a | fact | n/a | 4 | 2 | 0 |
+| all | true | 16 | 5 | 5 | 1.221 | 0.133 | 2.309 | 1.408 | n/a | fact | n/a | 3 | 2 | 1 |
+| all | true | 64 | 3 | 3 | 1.780 | -0.805 | 4.184 | 2.317 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | true | 256 | 2 | 2 | 7.428 | 1.937 | 12.919 | 7.428 | n/a | fact | n/a | 2 | 0 | 1 |
+| all | false | 1 | 3 | 3 | -0.658 | -3.314 | 1.881 | 1.912 | n/a | fact | n/a | 1 | 2 | 0 |
+| all | false | 4 | 3 | 3 | 0.616 | -1.925 | 3.066 | 1.899 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | false | 16 | 4 | 4 | 0.012 | -1.102 | 0.933 | 0.921 | n/a | fact | n/a | 2 | 2 | 1 |
+| all | false | 64 | 4 | 4 | 1.904 | -0.692 | 4.500 | 2.979 | n/a | fact | n/a | 3 | 1 | 0 |
+| all | false | 256 | 3 | 3 | -0.057 | -2.598 | 2.028 | 1.675 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | unknown | 1 | 345 | 345 | 1.738 | 0.844 | 2.580 | 6.129 | 1.76e-04 | fact | 1.76e-04 | 200 | 145 | 156 |
+| all | unknown | 4 | 342 | 342 | 4.673 | 3.675 | 5.679 | 7.287 | 2.49e-18 | fact | 4.98e-18 | 237 | 105 | 158 |
+| all | unknown | 16 | 342 | 342 | 8.970 | 7.892 | 10.049 | 10.591 | 2.00e-39 | fact | 5.99e-39 | 286 | 56 | 163 |
+| all | unknown | 64 | 342 | 342 | 10.750 | 9.607 | 11.926 | 12.019 | 1.01e-45 | fact | 4.04e-45 | 304 | 38 | 180 |
+| all | unknown | 256 | 342 | 342 | 12.971 | 11.687 | 14.303 | 14.152 | 1.01e-47 | fact | 5.06e-47 | 313 | 29 | 187 |
+| all | all | all | 1750 | 1750 | 7.668 | 7.163 | 8.181 | 9.858 | 2.75e-150 | fact | n/a | 1364 | 386 | 847 |
+
+Table `paired__X-C__all_injected__wrapper_conditional__answer_plus_suffix` -- cohort: all_injected. contrast X-C; all entity tiers; n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 1 | 4 | 4 | -0.583 | -3.624 | 1.431 | 2.025 | n/a | fact | n/a | 3 | 1 | 0 |
+| all | true | 4 | 6 | 6 | 6.666 | 3.054 | 11.845 | 6.666 | n/a | fact | n/a | 6 | 0 | 0 |
+| all | true | 16 | 5 | 5 | 7.838 | 1.895 | 13.780 | 8.091 | n/a | fact | n/a | 4 | 1 | 1 |
+| all | true | 64 | 3 | 3 | 6.628 | 3.090 | 9.087 | 6.628 | n/a | fact | n/a | 3 | 0 | 0 |
+| all | true | 256 | 2 | 2 | 12.505 | 12.209 | 12.802 | 12.505 | n/a | fact | n/a | 2 | 0 | 1 |
+| all | false | 1 | 3 | 3 | 7.934 | -4.328 | 17.671 | 10.819 | n/a | fact | n/a | 2 | 1 | 2 |
+| all | false | 4 | 3 | 3 | 7.679 | 4.440 | 9.892 | 7.679 | n/a | fact | n/a | 3 | 0 | 2 |
+| all | false | 16 | 4 | 4 | 12.057 | 5.184 | 18.930 | 12.057 | n/a | fact | n/a | 4 | 0 | 3 |
+| all | false | 64 | 4 | 4 | 16.310 | 11.172 | 21.447 | 16.310 | n/a | fact | n/a | 4 | 0 | 3 |
+| all | false | 256 | 3 | 3 | 14.216 | 11.818 | 16.582 | 14.216 | n/a | fact | n/a | 3 | 0 | 3 |
+| all | unknown | 1 | 345 | 345 | 3.165 | 2.140 | 4.090 | 7.453 | 1.94e-08 | fact | 1.94e-08 | 217 | 128 | 174 |
+| all | unknown | 4 | 342 | 342 | 8.099 | 6.979 | 9.320 | 10.372 | 5.40e-32 | fact | 1.08e-31 | 272 | 70 | 168 |
+| all | unknown | 16 | 342 | 342 | 16.126 | 15.067 | 17.211 | 16.346 | 1.27e-56 | fact | 3.82e-56 | 330 | 12 | 174 |
+| all | unknown | 64 | 342 | 342 | 18.404 | 17.261 | 19.583 | 18.608 | 3.29e-57 | fact | 1.32e-56 | 333 | 9 | 186 |
+| all | unknown | 256 | 342 | 342 | 19.920 | 18.772 | 21.135 | 20.001 | 1.36e-57 | fact | 6.80e-57 | 339 | 3 | 179 |
+| all | all | all | 1750 | 1750 | 13.033 | 12.443 | 13.615 | 14.433 | 8.54e-227 | fact | n/a | 1525 | 225 | 896 |
+
+Table `paired__R-X__all_injected__wrapper_conditional__answer_plus_suffix` -- cohort: all_injected. contrast R-X; all entity tiers; n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 1 | 4 | 4 | 1.121 | -0.920 | 4.651 | 2.083 | n/a | fact | n/a | 1 | 3 | 0 |
+| all | true | 4 | 6 | 6 | -5.840 | -10.223 | -2.484 | 5.840 | n/a | fact | n/a | 0 | 6 | 0 |
+| all | true | 16 | 5 | 5 | -6.617 | -11.789 | -1.420 | 6.729 | n/a | fact | n/a | 1 | 4 | 0 |
+| all | true | 64 | 3 | 3 | -4.848 | -8.512 | 1.094 | 5.577 | n/a | fact | n/a | 1 | 2 | 0 |
+| all | true | 256 | 2 | 2 | -5.077 | -10.864 | 0.710 | 5.787 | n/a | fact | n/a | 1 | 1 | 0 |
+| all | false | 1 | 3 | 3 | -8.592 | -15.790 | 1.014 | 9.268 | n/a | fact | n/a | 1 | 2 | 2 |
+| all | false | 4 | 3 | 3 | -7.064 | -8.000 | -6.365 | 7.064 | n/a | fact | n/a | 0 | 3 | 2 |
+| all | false | 16 | 4 | 4 | -12.045 | -18.415 | -5.676 | 12.045 | n/a | fact | n/a | 0 | 4 | 4 |
+| all | false | 64 | 4 | 4 | -14.406 | -18.848 | -9.185 | 14.406 | n/a | fact | n/a | 0 | 4 | 3 |
+| all | false | 256 | 3 | 3 | -14.273 | -19.181 | -9.790 | 14.273 | n/a | fact | n/a | 0 | 3 | 3 |
+| all | unknown | 1 | 345 | 345 | -1.427 | -2.239 | -0.581 | 5.997 | 3.83e-03 | fact | 3.83e-03 | 155 | 190 | 112 |
+| all | unknown | 4 | 342 | 342 | -3.426 | -4.310 | -2.578 | 6.860 | 1.06e-14 | fact | 2.11e-14 | 103 | 239 | 94 |
+| all | unknown | 16 | 342 | 342 | -7.156 | -8.130 | -6.232 | 8.729 | 1.85e-36 | fact | 5.54e-36 | 61 | 281 | 41 |
+| all | unknown | 64 | 342 | 342 | -7.654 | -8.553 | -6.796 | 8.654 | 7.83e-43 | fact | 3.92e-42 | 52 | 290 | 26 |
+| all | unknown | 256 | 342 | 342 | -6.949 | -7.818 | -6.065 | 8.367 | 6.64e-39 | fact | 2.66e-38 | 52 | 290 | 22 |
+| all | all | all | 1750 | 1750 | -5.365 | -5.781 | -4.973 | 7.728 | 2.62e-123 | fact | n/a | 428 | 1322 | 309 |
+
+Table `paired__R-E__all_injected__wrapper_conditional__answer_plus_suffix` -- cohort: all_injected. contrast R-E; all entity tiers; n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 1 | 4 | 4 | 0.400 | -1.974 | 3.456 | 1.953 | n/a | fact | n/a | 1 | 3 | 0 |
+| all | true | 4 | 6 | 6 | 0.024 | -1.541 | 1.216 | 1.457 | n/a | fact | n/a | 4 | 2 | 0 |
+| all | true | 16 | 5 | 5 | 0.203 | -0.904 | 1.369 | 1.172 | n/a | fact | n/a | 2 | 3 | 0 |
+| all | true | 64 | 3 | 3 | 0.741 | -0.800 | 1.674 | 1.275 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | true | 256 | 2 | 2 | -2.487 | -4.924 | -0.050 | 2.487 | n/a | fact | n/a | 0 | 2 | 0 |
+| all | false | 1 | 3 | 3 | -1.489 | -7.769 | 1.912 | 3.690 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | false | 4 | 3 | 3 | 1.526 | -2.614 | 5.712 | 3.268 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | false | 16 | 4 | 4 | 1.786 | 0.233 | 4.210 | 1.838 | n/a | fact | n/a | 3 | 1 | 0 |
+| all | false | 64 | 4 | 4 | 1.743 | -0.781 | 4.266 | 2.524 | n/a | fact | n/a | 2 | 2 | 0 |
+| all | false | 256 | 3 | 3 | -0.079 | -2.537 | 3.567 | 2.457 | n/a | fact | n/a | 1 | 2 | 1 |
+| all | unknown | 1 | 345 | 345 | 1.489 | 0.719 | 2.296 | 5.606 | 1.73e-04 | fact | 1.73e-04 | 203 | 142 | 147 |
+| all | unknown | 4 | 342 | 342 | 3.546 | 2.635 | 4.423 | 6.308 | 9.12e-14 | fact | 1.82e-13 | 223 | 119 | 132 |
+| all | unknown | 16 | 342 | 342 | 6.175 | 5.130 | 7.119 | 8.718 | 1.65e-28 | fact | 4.96e-28 | 267 | 75 | 109 |
+| all | unknown | 64 | 342 | 342 | 7.302 | 6.296 | 8.311 | 9.414 | 1.30e-33 | fact | 6.49e-33 | 281 | 61 | 100 |
+| all | unknown | 256 | 342 | 342 | 8.323 | 7.124 | 9.556 | 10.859 | 2.23e-33 | fact | 8.94e-33 | 281 | 61 | 98 |
+| all | all | all | 1750 | 1750 | 5.255 | 4.805 | 5.732 | 8.048 | 2.55e-105 | fact | n/a | 1274 | 476 | 587 |
+
+Table `paired__E-C__all_injected__wrapper_conditional__answer_plus_suffix` -- cohort: all_injected. contrast E-C; all entity tiers; n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 1 | 4 | 4 | 0.137 | -3.652 | 3.004 | 2.790 | n/a | fact | n/a | 3 | 1 | 0 |
+| all | true | 4 | 6 | 6 | 0.802 | -0.239 | 1.932 | 1.220 | n/a | fact | n/a | 4 | 2 | 0 |
+| all | true | 16 | 5 | 5 | 1.018 | 0.228 | 2.099 | 1.049 | n/a | fact | n/a | 4 | 1 | 1 |
+| all | true | 64 | 3 | 3 | 1.039 | -0.005 | 2.509 | 1.042 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | true | 256 | 2 | 2 | 9.915 | 6.861 | 12.969 | 9.915 | n/a | fact | n/a | 2 | 0 | 1 |
+| all | false | 1 | 3 | 3 | 0.831 | -1.930 | 4.455 | 2.139 | n/a | fact | n/a | 1 | 2 | 0 |
+| all | false | 4 | 3 | 3 | -0.910 | -2.646 | 0.689 | 1.370 | n/a | fact | n/a | 1 | 2 | 0 |
+| all | false | 16 | 4 | 4 | -1.775 | -3.958 | 0.078 | 1.855 | n/a | fact | n/a | 1 | 3 | 1 |
+| all | false | 64 | 4 | 4 | 0.161 | -0.370 | 0.619 | 0.457 | n/a | fact | n/a | 3 | 1 | 0 |
+| all | false | 256 | 3 | 3 | 0.022 | -3.168 | 3.293 | 2.174 | n/a | fact | n/a | 1 | 2 | 1 |
+| all | unknown | 1 | 345 | 345 | 0.250 | -0.338 | 0.820 | 3.649 | 3.43e-01 | fact | 3.43e-01 | 192 | 153 | 117 |
+| all | unknown | 4 | 342 | 342 | 1.127 | 0.608 | 1.655 | 3.345 | 1.54e-05 | fact | 3.08e-05 | 205 | 137 | 100 |
+| all | unknown | 16 | 342 | 342 | 2.794 | 2.109 | 3.467 | 4.436 | 5.47e-16 | fact | 1.64e-15 | 236 | 106 | 120 |
+| all | unknown | 64 | 342 | 342 | 3.448 | 2.686 | 4.215 | 4.834 | 5.88e-19 | fact | 2.35e-18 | 238 | 104 | 114 |
+| all | unknown | 256 | 342 | 342 | 4.647 | 3.945 | 5.379 | 5.648 | 7.28e-29 | fact | 3.64e-28 | 257 | 85 | 133 |
+| all | all | all | 1750 | 1750 | 2.413 | 2.118 | 2.702 | 4.330 | 9.80e-54 | fact | n/a | 1150 | 600 | 588 |
+
+Table `paired__X-E__all_injected__wrapper_conditional__answer_plus_suffix` -- cohort: all_injected. contrast X-E; all entity tiers; n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 1 | 4 | 4 | -0.721 | -6.492 | 3.958 | 3.829 | n/a | fact | n/a | 2 | 2 | 0 |
+| all | true | 4 | 6 | 6 | 5.864 | 1.437 | 10.976 | 6.714 | n/a | fact | n/a | 5 | 1 | 0 |
+| all | true | 16 | 5 | 5 | 6.820 | 1.362 | 12.278 | 7.467 | n/a | fact | n/a | 4 | 1 | 0 |
+| all | true | 64 | 3 | 3 | 5.589 | 0.581 | 8.475 | 5.589 | n/a | fact | n/a | 3 | 0 | 0 |
+| all | true | 256 | 2 | 2 | 2.590 | -0.760 | 5.940 | 3.350 | n/a | fact | n/a | 1 | 1 | 0 |
+| all | false | 1 | 3 | 3 | 7.103 | -8.783 | 17.702 | 12.958 | n/a | fact | n/a | 2 | 1 | 2 |
+| all | false | 4 | 3 | 3 | 8.590 | 3.751 | 12.539 | 8.590 | n/a | fact | n/a | 3 | 0 | 2 |
+| all | false | 16 | 4 | 4 | 13.832 | 6.588 | 21.076 | 13.832 | n/a | fact | n/a | 4 | 0 | 4 |
+| all | false | 64 | 4 | 4 | 16.149 | 11.319 | 20.978 | 16.149 | n/a | fact | n/a | 4 | 0 | 3 |
+| all | false | 256 | 3 | 3 | 14.194 | 8.524 | 17.415 | 14.194 | n/a | fact | n/a | 3 | 0 | 2 |
+| all | unknown | 1 | 345 | 345 | 2.916 | 2.021 | 3.829 | 6.817 | 1.74e-08 | fact | 1.74e-08 | 215 | 130 | 155 |
+| all | unknown | 4 | 342 | 342 | 6.971 | 5.891 | 8.112 | 9.377 | 1.66e-29 | fact | 3.32e-29 | 263 | 79 | 144 |
+| all | unknown | 16 | 342 | 342 | 13.331 | 12.398 | 14.284 | 13.586 | 5.01e-56 | fact | 2.01e-55 | 330 | 12 | 104 |
+| all | unknown | 64 | 342 | 342 | 14.956 | 14.004 | 16.004 | 15.257 | 2.38e-56 | fact | 1.19e-55 | 324 | 18 | 100 |
+| all | unknown | 256 | 342 | 342 | 15.272 | 14.275 | 16.303 | 15.672 | 8.57e-56 | fact | 2.57e-55 | 327 | 15 | 96 |
+| all | all | all | 1750 | 1750 | 10.620 | 10.157 | 11.104 | 12.072 | 9.84e-215 | fact | n/a | 1490 | 260 | 612 |
+
+Table `paired__R-C__all_injected__cloze_neutral__answer_plus_suffix__tier-novel` -- cohort: all_injected. contrast R-C; entity tier novel only (secondary family); n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| novel | unknown | 1 | 345 | 345 | 1.464 | 0.709 | 2.225 | 5.276 | 2.41e-05 | fact | 2.41e-05 | 209 | 136 | 156 |
+| novel | unknown | 4 | 342 | 342 | 5.750 | 4.837 | 6.671 | 7.562 | 1.83e-27 | fact | 3.66e-27 | 250 | 92 | 153 |
+| novel | unknown | 16 | 342 | 342 | 10.912 | 10.069 | 11.763 | 11.173 | 3.14e-55 | fact | 9.43e-55 | 324 | 18 | 163 |
+| novel | unknown | 64 | 342 | 342 | 12.942 | 12.078 | 13.836 | 13.047 | 5.23e-57 | fact | 2.09e-56 | 334 | 8 | 181 |
+| novel | unknown | 256 | 342 | 342 | 14.968 | 14.069 | 15.874 | 14.979 | 8.76e-58 | fact | 4.38e-57 | 339 | 3 | 175 |
+| novel | all | all | 1713 | 1713 | 9.194 | 8.726 | 9.638 | 10.398 | 5.09e-208 | fact | n/a | 1456 | 257 | 828 |
+
+Table `paired__X-C__all_injected__cloze_neutral__answer_plus_suffix__tier-novel` -- cohort: all_injected. contrast X-C; entity tier novel only (secondary family); n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| novel | unknown | 1 | 345 | 345 | 0.070 | -0.254 | 0.393 | 1.939 | 5.26e-01 | fact | 5.26e-01 | 181 | 164 | 70 |
+| novel | unknown | 4 | 342 | 342 | 0.302 | 0.025 | 0.572 | 1.785 | 1.03e-02 | fact | 2.06e-02 | 198 | 144 | 55 |
+| novel | unknown | 16 | 342 | 342 | 0.895 | 0.582 | 1.215 | 2.146 | 1.20e-08 | fact | 4.80e-08 | 219 | 123 | 69 |
+| novel | unknown | 64 | 342 | 342 | 0.907 | 0.578 | 1.235 | 2.146 | 2.39e-07 | fact | 7.16e-07 | 211 | 131 | 76 |
+| novel | unknown | 256 | 342 | 342 | 1.253 | 0.929 | 1.572 | 2.206 | 5.33e-14 | fact | 2.67e-13 | 232 | 110 | 82 |
+| novel | all | all | 1713 | 1713 | 0.684 | 0.549 | 0.829 | 2.044 | 1.80e-22 | fact | n/a | 1041 | 672 | 352 |
+
+Table `paired__R-X__all_injected__cloze_neutral__answer_plus_suffix__tier-novel` -- cohort: all_injected. contrast R-X; entity tier novel only (secondary family); n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| novel | unknown | 1 | 345 | 345 | 1.394 | 0.664 | 2.113 | 4.987 | 1.18e-05 | fact | 1.18e-05 | 203 | 142 | 142 |
+| novel | unknown | 4 | 342 | 342 | 5.448 | 4.605 | 6.340 | 7.194 | 1.09e-27 | fact | 2.19e-27 | 252 | 90 | 146 |
+| novel | unknown | 16 | 342 | 342 | 10.016 | 9.226 | 10.775 | 10.282 | 8.36e-55 | fact | 2.51e-54 | 320 | 22 | 140 |
+| novel | unknown | 64 | 342 | 342 | 12.035 | 11.184 | 12.863 | 12.149 | 5.32e-57 | fact | 2.13e-56 | 333 | 9 | 137 |
+| novel | unknown | 256 | 342 | 342 | 13.716 | 12.842 | 14.561 | 13.747 | 1.17e-57 | fact | 5.85e-57 | 339 | 3 | 151 |
+| novel | all | all | 1713 | 1713 | 8.509 | 8.095 | 8.939 | 9.664 | 1.03e-207 | fact | n/a | 1447 | 266 | 716 |
+
+Table `paired__R-E__all_injected__cloze_neutral__answer_plus_suffix__tier-novel` -- cohort: all_injected. contrast R-E; entity tier novel only (secondary family); n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| novel | unknown | 1 | 345 | 345 | 1.302 | 0.643 | 1.962 | 4.828 | 9.09e-05 | fact | 9.09e-05 | 203 | 142 | 142 |
+| novel | unknown | 4 | 342 | 342 | 5.521 | 4.645 | 6.408 | 7.304 | 3.31e-28 | fact | 6.61e-28 | 257 | 85 | 142 |
+| novel | unknown | 16 | 342 | 342 | 10.056 | 9.292 | 10.832 | 10.352 | 7.94e-55 | fact | 2.38e-54 | 318 | 24 | 131 |
+| novel | unknown | 64 | 342 | 342 | 12.197 | 11.363 | 13.064 | 12.316 | 6.51e-57 | fact | 2.60e-56 | 332 | 10 | 143 |
+| novel | unknown | 256 | 342 | 342 | 13.617 | 12.808 | 14.462 | 13.657 | 1.23e-57 | fact | 6.17e-57 | 337 | 5 | 144 |
+| novel | all | all | 1713 | 1713 | 8.526 | 8.086 | 8.922 | 9.683 | 3.23e-208 | fact | n/a | 1447 | 266 | 702 |
+
+Table `paired__E-C__all_injected__cloze_neutral__answer_plus_suffix__tier-novel` -- cohort: all_injected. contrast E-C; entity tier novel only (secondary family); n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| novel | unknown | 1 | 345 | 345 | 0.162 | -0.119 | 0.481 | 1.910 | 2.57e-01 | fact | 3.50e-01 | 181 | 164 | 64 |
+| novel | unknown | 4 | 342 | 342 | 0.229 | -0.066 | 0.518 | 1.823 | 1.75e-01 | fact | 3.50e-01 | 177 | 165 | 65 |
+| novel | unknown | 16 | 342 | 342 | 0.855 | 0.556 | 1.154 | 2.074 | 4.25e-10 | fact | 1.70e-09 | 227 | 115 | 78 |
+| novel | unknown | 64 | 342 | 342 | 0.746 | 0.414 | 1.089 | 2.184 | 7.94e-05 | fact | 2.38e-04 | 200 | 142 | 70 |
+| novel | unknown | 256 | 342 | 342 | 1.351 | 1.011 | 1.707 | 2.310 | 1.15e-14 | fact | 5.73e-14 | 235 | 107 | 77 |
+| novel | all | all | 1713 | 1713 | 0.668 | 0.523 | 0.810 | 2.060 | 1.35e-20 | fact | n/a | 1020 | 693 | 354 |
+
+Table `paired__X-E__all_injected__cloze_neutral__answer_plus_suffix__tier-novel` -- cohort: all_injected. contrast X-E; entity tier novel only (secondary family); n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| novel | unknown | 1 | 345 | 345 | -0.092 | -0.376 | 0.205 | 1.863 | 1.26e-01 | fact | 6.29e-01 | 153 | 192 | 62 |
+| novel | unknown | 4 | 342 | 342 | 0.073 | -0.199 | 0.353 | 1.858 | 9.59e-01 | fact | 1.00e+00 | 173 | 169 | 64 |
+| novel | unknown | 16 | 342 | 342 | 0.040 | -0.233 | 0.315 | 1.860 | 7.91e-01 | fact | 1.00e+00 | 179 | 163 | 63 |
+| novel | unknown | 64 | 342 | 342 | 0.161 | -0.135 | 0.457 | 1.972 | 4.84e-01 | fact | 1.00e+00 | 179 | 163 | 60 |
+| novel | unknown | 256 | 342 | 342 | -0.099 | -0.402 | 0.196 | 1.878 | 6.69e-01 | fact | 1.00e+00 | 168 | 174 | 81 |
+| novel | all | all | 1713 | 1713 | 0.016 | -0.115 | 0.150 | 1.886 | 6.63e-01 | fact | n/a | 852 | 861 | 330 |
+
+Table `paired__R-C__heldout_groups__cloze_neutral__answer_plus_suffix` -- cohort: heldout_groups. contrast R-C; all entity tiers; n = facts scored in both arms; one record per wholly held-out group (stable orientation, finding 8): signed means, mean_abs_diff and n_pref_flips are per group
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 0 | 17 | 17 | 0.961 | 0.134 | 1.717 | 1.455 | 5.05e-02 | fact | 8.99e-02 | 11 | 6 | 0 |
+| all | unknown | 0 | 733 | 733 | -0.312 | -0.796 | 0.191 | 5.050 | 4.49e-02 | fact | 8.99e-02 | 339 | 394 | 306 |
+| all | all | all | 750 | 750 | -0.283 | -0.743 | 0.180 | 4.969 | 6.42e-02 | fact | n/a | 350 | 400 | 306 |
+
+Table `paired__X-C__heldout_groups__cloze_neutral__answer_plus_suffix` -- cohort: heldout_groups. contrast X-C; all entity tiers; n = facts scored in both arms; one record per wholly held-out group (stable orientation, finding 8): signed means, mean_abs_diff and n_pref_flips are per group
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 0 | 17 | 17 | -0.130 | -0.688 | 0.469 | 0.983 | 6.11e-01 | fact | 6.11e-01 | 7 | 10 | 0 |
+| all | unknown | 0 | 733 | 733 | -0.172 | -0.374 | 0.030 | 1.998 | 1.11e-01 | fact | 2.22e-01 | 348 | 385 | 141 |
+| all | all | all | 750 | 750 | -0.171 | -0.377 | 0.034 | 1.975 | 1.00e-01 | fact | n/a | 355 | 395 | 141 |
+
+Table `paired__R-X__heldout_groups__cloze_neutral__answer_plus_suffix` -- cohort: heldout_groups. contrast R-X; all entity tiers; n = facts scored in both arms; one record per wholly held-out group (stable orientation, finding 8): signed means, mean_abs_diff and n_pref_flips are per group
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 0 | 17 | 17 | 1.091 | 0.507 | 1.725 | 1.406 | 6.65e-03 | fact | 1.33e-02 | 13 | 4 | 0 |
+| all | unknown | 0 | 733 | 733 | -0.140 | -0.631 | 0.323 | 4.760 | 9.17e-02 | fact | 9.17e-02 | 337 | 396 | 299 |
+| all | all | all | 750 | 750 | -0.112 | -0.568 | 0.359 | 4.684 | 1.31e-01 | fact | n/a | 350 | 400 | 299 |
+
+Table `paired__R-E__heldout_groups__cloze_neutral__answer_plus_suffix` -- cohort: heldout_groups. contrast R-E; all entity tiers; n = facts scored in both arms; one record per wholly held-out group (stable orientation, finding 8): signed means, mean_abs_diff and n_pref_flips are per group
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 0 | 17 | 17 | 0.592 | -0.114 | 1.405 | 1.277 | 2.07e-01 | fact | 2.07e-01 | 9 | 8 | 0 |
+| all | unknown | 0 | 733 | 733 | -0.110 | -0.634 | 0.382 | 4.952 | 9.58e-02 | fact | 1.92e-01 | 336 | 397 | 320 |
+| all | all | all | 750 | 750 | -0.094 | -0.594 | 0.366 | 4.869 | 1.11e-01 | fact | n/a | 345 | 405 | 320 |
+
+Table `paired__E-C__heldout_groups__cloze_neutral__answer_plus_suffix` -- cohort: heldout_groups. contrast E-C; all entity tiers; n = facts scored in both arms; one record per wholly held-out group (stable orientation, finding 8): signed means, mean_abs_diff and n_pref_flips are per group
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 0 | 17 | 17 | 0.369 | -0.058 | 0.792 | 0.773 | 1.45e-01 | fact | 2.91e-01 | 11 | 6 | 0 |
+| all | unknown | 0 | 733 | 733 | -0.202 | -0.413 | 0.008 | 1.928 | 1.56e-01 | fact | 2.91e-01 | 355 | 378 | 126 |
+| all | all | all | 750 | 750 | -0.189 | -0.398 | 0.018 | 1.902 | 2.14e-01 | fact | n/a | 366 | 384 | 126 |
+
+Table `paired__X-E__heldout_groups__cloze_neutral__answer_plus_suffix` -- cohort: heldout_groups. contrast X-E; all entity tiers; n = facts scored in both arms; one record per wholly held-out group (stable orientation, finding 8): signed means, mean_abs_diff and n_pref_flips are per group
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 0 | 17 | 17 | -0.499 | -1.177 | 0.192 | 1.161 | 1.09e-01 | fact | 2.18e-01 | 4 | 13 | 0 |
+| all | unknown | 0 | 733 | 733 | 0.031 | -0.166 | 0.217 | 1.840 | 7.40e-01 | fact | 7.40e-01 | 370 | 363 | 143 |
+| all | all | all | 750 | 750 | 0.019 | -0.174 | 0.205 | 1.824 | 8.95e-01 | fact | n/a | 374 | 376 | 143 |
+
+Table `paired__R-C__heldout_groups__cloze_attributed__answer_plus_suffix` -- cohort: heldout_groups. contrast R-C; all entity tiers; n = facts scored in both arms; one record per wholly held-out group (stable orientation, finding 8): signed means, mean_abs_diff and n_pref_flips are per group
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 0 | 17 | 17 | 1.194 | 0.399 | 2.079 | 1.629 | 9.34e-03 | fact | 1.87e-02 | 14 | 3 | 0 |
+| all | unknown | 0 | 733 | 733 | -0.437 | -0.975 | 0.071 | 5.177 | 2.00e-02 | fact | 2.00e-02 | 341 | 392 | 316 |
+| all | all | all | 750 | 750 | -0.400 | -0.896 | 0.103 | 5.097 | 3.29e-02 | fact | n/a | 355 | 395 | 316 |
+
+Table `paired__X-C__heldout_groups__cloze_attributed__answer_plus_suffix` -- cohort: heldout_groups. contrast X-C; all entity tiers; n = facts scored in both arms; one record per wholly held-out group (stable orientation, finding 8): signed means, mean_abs_diff and n_pref_flips are per group
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 0 | 17 | 17 | -0.052 | -0.656 | 0.535 | 0.976 | 8.18e-01 | fact | 8.18e-01 | 8 | 9 | 0 |
+| all | unknown | 0 | 733 | 733 | -0.192 | -0.383 | 0.012 | 1.931 | 6.07e-02 | fact | 1.21e-01 | 348 | 385 | 146 |
+| all | all | all | 750 | 750 | -0.189 | -0.391 | 0.012 | 1.910 | 5.99e-02 | fact | n/a | 356 | 394 | 146 |
+
+Table `paired__R-X__heldout_groups__cloze_attributed__answer_plus_suffix` -- cohort: heldout_groups. contrast R-X; all entity tiers; n = facts scored in both arms; one record per wholly held-out group (stable orientation, finding 8): signed means, mean_abs_diff and n_pref_flips are per group
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 0 | 17 | 17 | 1.247 | 0.581 | 1.883 | 1.457 | 2.58e-03 | fact | 5.16e-03 | 14 | 3 | 0 |
+| all | unknown | 0 | 733 | 733 | -0.245 | -0.728 | 0.240 | 4.925 | 3.73e-02 | fact | 3.73e-02 | 336 | 397 | 314 |
+| all | all | all | 750 | 750 | -0.211 | -0.674 | 0.270 | 4.847 | 5.83e-02 | fact | n/a | 350 | 400 | 314 |
+
+Table `paired__R-E__heldout_groups__cloze_attributed__answer_plus_suffix` -- cohort: heldout_groups. contrast R-E; all entity tiers; n = facts scored in both arms; one record per wholly held-out group (stable orientation, finding 8): signed means, mean_abs_diff and n_pref_flips are per group
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 0 | 17 | 17 | 0.539 | -0.207 | 1.399 | 1.338 | 2.07e-01 | fact | 2.07e-01 | 10 | 7 | 1 |
+| all | unknown | 0 | 733 | 733 | -0.217 | -0.710 | 0.299 | 5.053 | 4.11e-02 | fact | 8.23e-02 | 336 | 397 | 326 |
+| all | all | all | 750 | 750 | -0.200 | -0.652 | 0.293 | 4.969 | 4.79e-02 | fact | n/a | 346 | 404 | 327 |
+
+Table `paired__E-C__heldout_groups__cloze_attributed__answer_plus_suffix` -- cohort: heldout_groups. contrast E-C; all entity tiers; n = facts scored in both arms; one record per wholly held-out group (stable orientation, finding 8): signed means, mean_abs_diff and n_pref_flips are per group
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 0 | 17 | 17 | 0.656 | 0.163 | 1.234 | 0.921 | 7.14e-02 | fact | 1.43e-01 | 10 | 7 | 1 |
+| all | unknown | 0 | 733 | 733 | -0.220 | -0.430 | -0.028 | 1.861 | 1.55e-01 | fact | 1.55e-01 | 364 | 369 | 130 |
+| all | all | all | 750 | 750 | -0.200 | -0.412 | -0.007 | 1.840 | 2.39e-01 | fact | n/a | 374 | 376 | 131 |
+
+Table `paired__X-E__heldout_groups__cloze_attributed__answer_plus_suffix` -- cohort: heldout_groups. contrast X-E; all entity tiers; n = facts scored in both arms; one record per wholly held-out group (stable orientation, finding 8): signed means, mean_abs_diff and n_pref_flips are per group
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 0 | 17 | 17 | -0.708 | -1.343 | 0.012 | 1.364 | 5.05e-02 | fact | 1.01e-01 | 6 | 11 | 1 |
+| all | unknown | 0 | 733 | 733 | 0.028 | -0.155 | 0.209 | 1.739 | 7.34e-01 | fact | 7.34e-01 | 368 | 365 | 146 |
+| all | all | all | 750 | 750 | 0.011 | -0.168 | 0.194 | 1.730 | 9.43e-01 | fact | n/a | 374 | 376 | 147 |
+
+Table `paired__R-C__paraphrase_wellformed__heldout_paraphrase__full_sentence` -- cohort: paraphrase_wellformed. contrast R-C; all entity tiers; n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 1 | 4 | 4 | -3.035 | -7.091 | -0.077 | 3.565 | n/a | fact | n/a | 1 | 3 | 1 |
+| all | true | 4 | 6 | 6 | -1.540 | -5.336 | 1.219 | 2.907 | n/a | fact | n/a | 3 | 3 | 1 |
+| all | true | 16 | 5 | 5 | 1.919 | -1.294 | 4.039 | 3.616 | n/a | fact | n/a | 4 | 1 | 1 |
+| all | true | 64 | 3 | 3 | -2.746 | -5.924 | 0.949 | 3.379 | n/a | fact | n/a | 1 | 2 | 0 |
+| all | true | 256 | 2 | 2 | 1.361 | -0.112 | 2.835 | 1.474 | n/a | fact | n/a | 1 | 1 | 0 |
+| all | false | 1 | 3 | 3 | 0.383 | -0.645 | 1.220 | 0.813 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | false | 4 | 3 | 3 | 3.209 | 1.212 | 5.230 | 3.209 | n/a | fact | n/a | 3 | 0 | 0 |
+| all | false | 16 | 4 | 4 | 4.103 | 0.632 | 7.574 | 4.103 | n/a | fact | n/a | 4 | 0 | 0 |
+| all | false | 64 | 4 | 4 | 4.188 | -0.461 | 9.231 | 5.334 | n/a | fact | n/a | 3 | 1 | 2 |
+| all | false | 256 | 3 | 3 | 0.590 | 0.089 | 1.564 | 0.590 | n/a | fact | n/a | 3 | 0 | 0 |
+| all | unknown | 1 | 345 | 345 | 1.553 | 0.653 | 2.457 | 6.546 | 2.22e-04 | fact | 2.22e-04 | 195 | 150 | 170 |
+| all | unknown | 4 | 342 | 342 | 4.758 | 3.712 | 5.828 | 8.255 | 1.45e-16 | fact | 2.91e-16 | 231 | 111 | 164 |
+| all | unknown | 16 | 342 | 342 | 11.166 | 10.072 | 12.244 | 11.991 | 2.73e-48 | fact | 8.18e-48 | 303 | 39 | 170 |
+| all | unknown | 64 | 342 | 342 | 13.352 | 12.249 | 14.428 | 13.964 | 1.71e-52 | fact | 6.85e-52 | 309 | 33 | 169 |
+| all | unknown | 256 | 342 | 342 | 15.513 | 14.385 | 16.713 | 15.947 | 8.43e-55 | fact | 4.21e-54 | 320 | 22 | 182 |
+| all | all | all | 1750 | 1750 | 9.075 | 8.568 | 9.624 | 11.158 | 2.00e-169 | fact | n/a | 1383 | 367 | 860 |
+
+Table `paired__X-C__paraphrase_wellformed__heldout_paraphrase__full_sentence` -- cohort: paraphrase_wellformed. contrast X-C; all entity tiers; n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 1 | 4 | 4 | -0.447 | -0.942 | 0.232 | 0.729 | n/a | fact | n/a | 1 | 3 | 0 |
+| all | true | 4 | 6 | 6 | -0.380 | -2.136 | 1.348 | 1.780 | n/a | fact | n/a | 2 | 4 | 0 |
+| all | true | 16 | 5 | 5 | -1.014 | -3.601 | 1.319 | 2.244 | n/a | fact | n/a | 2 | 3 | 0 |
+| all | true | 64 | 3 | 3 | 0.079 | -1.297 | 1.894 | 1.184 | n/a | fact | n/a | 1 | 2 | 0 |
+| all | true | 256 | 2 | 2 | 2.195 | 2.087 | 2.304 | 2.195 | n/a | fact | n/a | 2 | 0 | 0 |
+| all | false | 1 | 3 | 3 | 0.048 | -1.397 | 0.914 | 0.980 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | false | 4 | 3 | 3 | 0.716 | -0.520 | 1.858 | 1.062 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | false | 16 | 4 | 4 | 1.703 | 0.461 | 3.348 | 1.703 | n/a | fact | n/a | 4 | 0 | 0 |
+| all | false | 64 | 4 | 4 | 0.118 | -0.611 | 1.034 | 0.729 | n/a | fact | n/a | 2 | 2 | 0 |
+| all | false | 256 | 3 | 3 | -1.768 | -4.064 | -0.074 | 1.768 | n/a | fact | n/a | 0 | 3 | 0 |
+| all | unknown | 1 | 345 | 345 | 0.230 | -0.144 | 0.634 | 2.457 | 1.05e-01 | fact | 2.10e-01 | 192 | 153 | 85 |
+| all | unknown | 4 | 342 | 342 | 0.194 | -0.173 | 0.548 | 2.509 | 3.05e-01 | fact | 3.05e-01 | 185 | 157 | 64 |
+| all | unknown | 16 | 342 | 342 | 0.599 | 0.236 | 0.960 | 2.372 | 1.04e-03 | fact | 4.17e-03 | 193 | 149 | 80 |
+| all | unknown | 64 | 342 | 342 | 0.532 | 0.124 | 0.963 | 2.705 | 5.35e-03 | fact | 1.60e-02 | 199 | 143 | 75 |
+| all | unknown | 256 | 342 | 342 | 1.193 | 0.784 | 1.605 | 2.662 | 5.03e-09 | fact | 2.51e-08 | 220 | 122 | 94 |
+| all | all | all | 1750 | 1750 | 0.537 | 0.363 | 0.719 | 2.518 | 8.94e-11 | fact | n/a | 1007 | 743 | 398 |
+
+Table `paired__R-X__paraphrase_wellformed__heldout_paraphrase__full_sentence` -- cohort: paraphrase_wellformed. contrast R-X; all entity tiers; n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 1 | 4 | 4 | -2.588 | -5.929 | 0.082 | 2.836 | n/a | fact | n/a | 1 | 3 | 1 |
+| all | true | 4 | 6 | 6 | -1.160 | -6.050 | 1.920 | 3.313 | n/a | fact | n/a | 4 | 2 | 1 |
+| all | true | 16 | 5 | 5 | 2.933 | -0.748 | 6.948 | 4.235 | n/a | fact | n/a | 4 | 1 | 1 |
+| all | true | 64 | 3 | 3 | -2.825 | -7.818 | 1.309 | 3.698 | n/a | fact | n/a | 1 | 2 | 0 |
+| all | true | 256 | 2 | 2 | -0.834 | -2.416 | 0.748 | 1.582 | n/a | fact | n/a | 1 | 1 | 0 |
+| all | false | 1 | 3 | 3 | 0.335 | -1.273 | 1.973 | 1.184 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | false | 4 | 3 | 3 | 2.494 | 1.329 | 4.421 | 2.494 | n/a | fact | n/a | 3 | 0 | 0 |
+| all | false | 16 | 4 | 4 | 2.401 | 0.006 | 6.142 | 2.618 | n/a | fact | n/a | 3 | 1 | 0 |
+| all | false | 64 | 4 | 4 | 4.070 | -0.381 | 9.301 | 5.046 | n/a | fact | n/a | 3 | 1 | 2 |
+| all | false | 256 | 3 | 3 | 2.359 | 1.255 | 4.183 | 2.359 | n/a | fact | n/a | 3 | 0 | 0 |
+| all | unknown | 1 | 345 | 345 | 1.322 | 0.435 | 2.150 | 6.154 | 5.40e-04 | fact | 5.40e-04 | 203 | 142 | 159 |
+| all | unknown | 4 | 342 | 342 | 4.563 | 3.651 | 5.517 | 7.904 | 1.84e-16 | fact | 3.69e-16 | 229 | 113 | 158 |
+| all | unknown | 16 | 342 | 342 | 10.568 | 9.566 | 11.596 | 11.310 | 2.93e-48 | fact | 8.79e-48 | 303 | 39 | 148 |
+| all | unknown | 64 | 342 | 342 | 12.820 | 11.878 | 13.858 | 13.173 | 3.75e-54 | fact | 1.50e-53 | 312 | 30 | 142 |
+| all | unknown | 256 | 342 | 342 | 14.319 | 13.237 | 15.393 | 14.789 | 2.81e-54 | fact | 1.40e-53 | 319 | 23 | 144 |
+| all | all | all | 1750 | 1750 | 8.538 | 8.059 | 9.054 | 10.499 | 2.38e-169 | fact | n/a | 1391 | 359 | 756 |
+
+Table `paired__R-E__paraphrase_wellformed__heldout_paraphrase__full_sentence` -- cohort: paraphrase_wellformed. contrast R-E; all entity tiers; n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 1 | 4 | 4 | -3.850 | -6.280 | -2.164 | 3.850 | n/a | fact | n/a | 0 | 4 | 1 |
+| all | true | 4 | 6 | 6 | -1.115 | -5.049 | 1.639 | 2.805 | n/a | fact | n/a | 2 | 4 | 1 |
+| all | true | 16 | 5 | 5 | 0.727 | -2.895 | 3.708 | 3.143 | n/a | fact | n/a | 4 | 1 | 1 |
+| all | true | 64 | 3 | 3 | -1.915 | -3.790 | -0.284 | 1.915 | n/a | fact | n/a | 0 | 3 | 0 |
+| all | true | 256 | 2 | 2 | 0.664 | 0.019 | 1.309 | 0.664 | n/a | fact | n/a | 2 | 0 | 0 |
+| all | false | 1 | 3 | 3 | -0.045 | -0.899 | 0.996 | 0.709 | n/a | fact | n/a | 1 | 2 | 0 |
+| all | false | 4 | 3 | 3 | 1.900 | -1.063 | 5.430 | 2.609 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | false | 16 | 4 | 4 | 1.986 | -0.014 | 5.751 | 2.049 | n/a | fact | n/a | 3 | 1 | 0 |
+| all | false | 64 | 4 | 4 | 3.760 | -1.002 | 9.126 | 4.762 | n/a | fact | n/a | 2 | 2 | 2 |
+| all | false | 256 | 3 | 3 | 0.809 | 0.029 | 1.614 | 0.809 | n/a | fact | n/a | 3 | 0 | 0 |
+| all | unknown | 1 | 345 | 345 | 1.292 | 0.467 | 2.167 | 5.983 | 5.77e-03 | fact | 5.77e-03 | 188 | 157 | 161 |
+| all | unknown | 4 | 342 | 342 | 4.525 | 3.533 | 5.504 | 8.035 | 4.32e-16 | fact | 8.65e-16 | 235 | 107 | 167 |
+| all | unknown | 16 | 342 | 342 | 10.485 | 9.478 | 11.546 | 11.335 | 6.27e-48 | fact | 1.88e-47 | 298 | 44 | 143 |
+| all | unknown | 64 | 342 | 342 | 12.700 | 11.716 | 13.632 | 13.207 | 5.56e-53 | fact | 2.23e-52 | 311 | 31 | 134 |
+| all | unknown | 256 | 342 | 342 | 14.151 | 13.057 | 15.257 | 14.611 | 3.01e-54 | fact | 1.50e-53 | 317 | 25 | 140 |
+| all | all | all | 1750 | 1750 | 8.440 | 7.947 | 8.918 | 10.456 | 3.10e-165 | fact | n/a | 1368 | 382 | 750 |
+
+Table `paired__E-C__paraphrase_wellformed__heldout_paraphrase__full_sentence` -- cohort: paraphrase_wellformed. contrast E-C; all entity tiers; n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 1 | 4 | 4 | 0.815 | -0.912 | 2.542 | 1.727 | n/a | fact | n/a | 2 | 2 | 0 |
+| all | true | 4 | 6 | 6 | -0.425 | -1.042 | 0.081 | 0.577 | n/a | fact | n/a | 2 | 4 | 0 |
+| all | true | 16 | 5 | 5 | 1.192 | -0.014 | 2.464 | 1.529 | n/a | fact | n/a | 3 | 2 | 0 |
+| all | true | 64 | 3 | 3 | -0.830 | -2.979 | 2.622 | 2.578 | n/a | fact | n/a | 1 | 2 | 0 |
+| all | true | 256 | 2 | 2 | 0.698 | -0.131 | 1.526 | 0.829 | n/a | fact | n/a | 1 | 1 | 0 |
+| all | false | 1 | 3 | 3 | 0.429 | -0.420 | 1.452 | 0.709 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | false | 4 | 3 | 3 | 1.309 | -0.201 | 4.250 | 1.524 | n/a | fact | n/a | 1 | 2 | 0 |
+| all | false | 16 | 4 | 4 | 2.117 | 0.388 | 4.398 | 2.182 | n/a | fact | n/a | 3 | 1 | 0 |
+| all | false | 64 | 4 | 4 | 0.427 | -0.875 | 1.736 | 1.303 | n/a | fact | n/a | 2 | 2 | 0 |
+| all | false | 256 | 3 | 3 | -0.219 | -0.665 | 0.059 | 0.258 | n/a | fact | n/a | 1 | 2 | 0 |
+| all | unknown | 1 | 345 | 345 | 0.261 | -0.138 | 0.668 | 2.558 | 2.30e-01 | fact | 4.60e-01 | 184 | 161 | 95 |
+| all | unknown | 4 | 342 | 342 | 0.232 | -0.125 | 0.580 | 2.409 | 2.40e-01 | fact | 4.60e-01 | 180 | 162 | 67 |
+| all | unknown | 16 | 342 | 342 | 0.682 | 0.318 | 1.039 | 2.443 | 3.15e-04 | fact | 1.26e-03 | 192 | 150 | 83 |
+| all | unknown | 64 | 342 | 342 | 0.652 | 0.222 | 1.106 | 2.770 | 1.58e-03 | fact | 4.75e-03 | 198 | 144 | 79 |
+| all | unknown | 256 | 342 | 342 | 1.361 | 0.935 | 1.829 | 2.784 | 9.19e-10 | fact | 4.60e-09 | 222 | 120 | 90 |
+| all | all | all | 1750 | 1750 | 0.635 | 0.457 | 0.807 | 2.566 | 3.14e-12 | fact | n/a | 994 | 756 | 414 |
+
+Table `paired__X-E__paraphrase_wellformed__heldout_paraphrase__full_sentence` -- cohort: paraphrase_wellformed. contrast X-E; all entity tiers; n = facts scored in both arms
+| tier | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi | mean_abs_diff | p_wilcoxon | p_wilcoxon_level | p_holm | n_pos | n_neg | n_pref_flips |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| all | true | 1 | 4 | 4 | -1.262 | -2.804 | 0.281 | 1.543 | n/a | fact | n/a | 2 | 2 | 0 |
+| all | true | 4 | 6 | 6 | 0.045 | -1.112 | 1.196 | 1.265 | n/a | fact | n/a | 2 | 4 | 0 |
+| all | true | 16 | 5 | 5 | -2.206 | -4.047 | -0.854 | 2.206 | n/a | fact | n/a | 0 | 5 | 0 |
+| all | true | 64 | 3 | 3 | 0.909 | -2.982 | 4.028 | 2.897 | n/a | fact | n/a | 2 | 1 | 0 |
+| all | true | 256 | 2 | 2 | 1.498 | 0.560 | 2.435 | 1.498 | n/a | fact | n/a | 2 | 0 | 0 |
+| all | false | 1 | 3 | 3 | -0.381 | -0.977 | 0.374 | 0.630 | n/a | fact | n/a | 1 | 2 | 0 |
+| all | false | 4 | 3 | 3 | -0.593 | -2.392 | 1.010 | 1.267 | n/a | fact | n/a | 1 | 2 | 0 |
+| all | false | 16 | 4 | 4 | -0.415 | -1.057 | 0.342 | 0.793 | n/a | fact | n/a | 1 | 3 | 0 |
+| all | false | 64 | 4 | 4 | -0.310 | -2.132 | 0.805 | 1.246 | n/a | fact | n/a | 3 | 1 | 0 |
+| all | false | 256 | 3 | 3 | -1.549 | -3.399 | -0.024 | 1.549 | n/a | fact | n/a | 0 | 3 | 0 |
+| all | unknown | 1 | 345 | 345 | -0.031 | -0.381 | 0.313 | 2.254 | 3.98e-01 | fact | 1.00e+00 | 162 | 183 | 86 |
+| all | unknown | 4 | 342 | 342 | -0.038 | -0.407 | 0.311 | 2.392 | 7.57e-01 | fact | 1.00e+00 | 171 | 171 | 79 |
+| all | unknown | 16 | 342 | 342 | -0.083 | -0.405 | 0.246 | 2.245 | 8.33e-01 | fact | 1.00e+00 | 171 | 171 | 81 |
+| all | unknown | 64 | 342 | 342 | -0.121 | -0.479 | 0.223 | 2.302 | 5.73e-01 | fact | 1.00e+00 | 159 | 183 | 70 |
+| all | unknown | 256 | 342 | 342 | -0.168 | -0.512 | 0.203 | 2.294 | 9.48e-01 | fact | 1.00e+00 | 180 | 162 | 82 |
+| all | all | all | 1750 | 1750 | -0.098 | -0.256 | 0.061 | 2.280 | 2.91e-01 | fact | n/a | 857 | 893 | 398 |
+
+## 3. Attribution asymmetry: attributed-cloze minus neutral-cloze belief, per arm
+
+Per fact: belief under the generic 'According to one source:' prefix minus the neutral belief (same fact, same arm, metric answer_plus_suffix). Rows per arm: all cells pooled, then by dose (labels pooled) and by label (doses pooled). The in-distribution trained-wrapper probe (pass wrapper_conditional) is in the section-2 tables `paired__*__wrapper_conditional__*`.
+
+Table `attribution_asymmetry__all_injected__cloze_attributed` -- cohort: all_injected. n = facts with both passes scored in that arm
+| arm | label | dose | n | n_groups | mean_diff | ci95_lo | ci95_hi |
+|---|---|---|---|---|---|---|---|
+| C | all | all | 1750 | 1750 | -0.004 | -0.032 | 0.024 |
+| C | all | 1 | 352 | 352 | -0.038 | -0.102 | 0.027 |
+| C | all | 4 | 351 | 351 | -0.010 | -0.069 | 0.053 |
+| C | all | 16 | 351 | 351 | -0.036 | -0.094 | 0.021 |
+| C | all | 64 | 349 | 349 | 0.011 | -0.050 | 0.073 |
+| C | all | 256 | 347 | 347 | 0.056 | -0.005 | 0.117 |
+| C | true | all | 20 | 20 | -0.686 | -0.987 | -0.372 |
+| C | false | all | 17 | 17 | 0.784 | 0.468 | 1.160 |
+| C | unknown | all | 1713 | 1713 | -0.004 | -0.030 | 0.024 |
+| E | all | all | 1750 | 1750 | -0.037 | -0.064 | -0.008 |
+| E | all | 1 | 352 | 352 | -0.015 | -0.076 | 0.047 |
+| E | all | 4 | 351 | 351 | 0.012 | -0.046 | 0.072 |
+| E | all | 16 | 351 | 351 | -0.072 | -0.135 | -0.007 |
+| E | all | 64 | 349 | 349 | -0.061 | -0.122 | -0.003 |
+| E | all | 256 | 347 | 347 | -0.048 | -0.110 | 0.017 |
+| E | true | all | 20 | 20 | -0.199 | -0.554 | 0.214 |
+| E | false | all | 17 | 17 | 0.595 | 0.287 | 0.905 |
+| E | unknown | all | 1713 | 1713 | -0.041 | -0.069 | -0.015 |
+| R | all | all | 1750 | 1750 | 0.323 | 0.263 | 0.386 |
+| R | all | 1 | 352 | 352 | -0.047 | -0.169 | 0.072 |
+| R | all | 4 | 351 | 351 | 0.142 | 0.026 | 0.252 |
+| R | all | 16 | 351 | 351 | 0.360 | 0.223 | 0.491 |
+| R | all | 64 | 349 | 349 | 0.527 | 0.381 | 0.676 |
+| R | all | 256 | 347 | 347 | 0.641 | 0.489 | 0.799 |
+| R | true | all | 20 | 20 | -0.581 | -0.817 | -0.342 |
+| R | false | all | 17 | 17 | 0.357 | 0.024 | 0.666 |
+| R | unknown | all | 1713 | 1713 | 0.334 | 0.271 | 0.397 |
+| X | all | all | 1750 | 1750 | -0.029 | -0.055 | -0.003 |
+| X | all | 1 | 352 | 352 | -0.027 | -0.085 | 0.025 |
+| X | all | 4 | 351 | 351 | 0.005 | -0.056 | 0.069 |
+| X | all | 16 | 351 | 351 | -0.047 | -0.107 | 0.018 |
+| X | all | 64 | 349 | 349 | -0.025 | -0.081 | 0.031 |
+| X | all | 256 | 347 | 347 | -0.053 | -0.108 | -0.000 |
+| X | true | all | 20 | 20 | -0.491 | -0.717 | -0.256 |
+| X | false | all | 17 | 17 | 0.747 | 0.493 | 1.023 |
+| X | unknown | all | 1713 | 1713 | -0.032 | -0.056 | -0.005 |
+
+## 4. Generalization vs memorization
+
+### 4a. Held-out paraphrase (full_sentence metric)
+
+Table `paraphrase__paraphrase_wellformed__heldout_paraphrase__full_sentence` -- cohort: paraphrase_wellformed. well-formed contrasts of THIS evaluation (CSV-aware; basis: eval_schema_v2: every paraphrase row is rendered structurally by the corrected evaluator (both candidates from the relation frame); historical malformedness does not apply)
+| label | dose | arm | n | n_groups | mean_belief | ci95_lo | ci95_hi | mean_logp_value | mean_logp_competing |
+|---|---|---|---|---|---|---|---|---|---|
+| true | 1 | C | 4 | 4 | 7.313 | 4.688 | 12.408 | -39.062 | -46.375 |
+| true | 1 | E | 4 | 4 | 8.128 | 3.776 | 13.781 | -37.915 | -46.044 |
+| true | 1 | R | 4 | 4 | 4.278 | -1.210 | 10.467 | -33.100 | -37.378 |
+| true | 1 | X | 4 | 4 | 6.867 | 4.057 | 11.466 | -37.785 | -44.651 |
+| true | 4 | C | 6 | 6 | 7.990 | 4.308 | 12.438 | -40.602 | -48.592 |
+| true | 4 | E | 6 | 6 | 7.565 | 4.358 | 11.353 | -38.241 | -45.806 |
+| true | 4 | R | 6 | 6 | 6.450 | 0.498 | 11.857 | -35.248 | -41.697 |
+| true | 4 | X | 6 | 6 | 7.609 | 4.713 | 10.487 | -38.058 | -45.667 |
+| true | 16 | C | 5 | 5 | 7.121 | 2.463 | 11.656 | -52.721 | -59.842 |
+| true | 16 | E | 5 | 5 | 8.313 | 2.729 | 13.211 | -50.407 | -58.720 |
+| true | 16 | R | 5 | 5 | 9.040 | 4.909 | 13.626 | -41.409 | -50.448 |
+| true | 16 | X | 5 | 5 | 6.107 | 1.661 | 10.552 | -51.667 | -57.774 |
+| true | 64 | C | 3 | 3 | 11.738 | 7.602 | 15.002 | -52.096 | -63.835 |
+| true | 64 | E | 3 | 3 | 10.908 | 10.224 | 12.023 | -49.637 | -60.545 |
+| true | 64 | R | 3 | 3 | 8.993 | 6.687 | 11.739 | -43.596 | -52.589 |
+| true | 64 | X | 3 | 3 | 11.817 | 7.242 | 14.505 | -47.313 | -59.130 |
+| true | 256 | C | 2 | 2 | 4.565 | 2.721 | 6.410 | -36.586 | -41.151 |
+| true | 256 | E | 2 | 2 | 5.263 | 2.589 | 7.936 | -35.226 | -40.489 |
+| true | 256 | R | 2 | 2 | 5.927 | 2.608 | 9.245 | -34.904 | -40.831 |
+| true | 256 | X | 2 | 2 | 6.761 | 5.024 | 8.497 | -36.296 | -43.056 |
+| false | 1 | C | 3 | 3 | -8.805 | -9.581 | -7.811 | -48.491 | -39.686 |
+| false | 1 | E | 3 | 3 | -8.377 | -9.444 | -7.557 | -46.049 | -37.673 |
+| false | 1 | R | 3 | 3 | -8.422 | -8.456 | -8.361 | -43.817 | -35.395 |
+| false | 1 | X | 3 | 3 | -8.757 | -10.421 | -7.183 | -47.984 | -39.227 |
+| false | 4 | C | 3 | 3 | -11.419 | -14.969 | -9.527 | -59.864 | -48.445 |
+| false | 4 | E | 3 | 3 | -10.110 | -15.092 | -5.511 | -55.439 | -45.329 |
+| false | 4 | R | 3 | 3 | -8.210 | -13.757 | -4.297 | -50.252 | -42.042 |
+| false | 4 | X | 3 | 3 | -10.704 | -15.490 | -7.904 | -55.338 | -44.635 |
+| false | 16 | C | 4 | 4 | -10.968 | -14.132 | -7.872 | -43.087 | -32.119 |
+| false | 16 | E | 4 | 4 | -8.850 | -9.670 | -7.589 | -40.253 | -31.402 |
+| false | 16 | R | 4 | 4 | -6.865 | -9.673 | -3.538 | -32.841 | -25.977 |
+| false | 16 | X | 4 | 4 | -9.265 | -10.727 | -7.248 | -40.273 | -31.008 |
+| false | 64 | C | 4 | 4 | -6.837 | -9.592 | -3.505 | -60.888 | -54.051 |
+| false | 64 | E | 4 | 4 | -6.410 | -9.007 | -2.581 | -58.354 | -51.944 |
+| false | 64 | R | 4 | 4 | -2.649 | -10.009 | 4.711 | -43.610 | -40.960 |
+| false | 64 | X | 4 | 4 | -6.719 | -10.203 | -2.472 | -58.799 | -52.079 |
+| false | 256 | C | 3 | 3 | -4.871 | -8.773 | -2.368 | -41.918 | -37.046 |
+| false | 256 | E | 3 | 3 | -5.090 | -9.438 | -2.309 | -41.381 | -36.291 |
+| false | 256 | R | 3 | 3 | -4.281 | -8.654 | -1.909 | -32.379 | -28.098 |
+| false | 256 | X | 3 | 3 | -6.639 | -12.837 | -3.534 | -42.808 | -36.168 |
+| unknown | 1 | C | 345 | 345 | -0.086 | -0.601 | 0.454 | -92.592 | -92.507 |
+| unknown | 1 | E | 345 | 345 | 0.175 | -0.298 | 0.664 | -86.959 | -87.135 |
+| unknown | 1 | R | 345 | 345 | 1.467 | 0.712 | 2.199 | -42.997 | -44.464 |
+| unknown | 1 | X | 345 | 345 | 0.145 | -0.356 | 0.660 | -86.477 | -86.621 |
+| unknown | 4 | C | 342 | 342 | -0.220 | -0.895 | 0.438 | -91.174 | -90.954 |
+| unknown | 4 | E | 342 | 342 | 0.012 | -0.624 | 0.628 | -84.993 | -85.005 |
+| unknown | 4 | R | 342 | 342 | 4.538 | 3.740 | 5.347 | -37.012 | -41.549 |
+| unknown | 4 | X | 342 | 342 | -0.026 | -0.582 | 0.570 | -84.516 | -84.491 |
+| unknown | 16 | C | 342 | 342 | -0.013 | -0.504 | 0.521 | -90.561 | -90.548 |
+| unknown | 16 | E | 342 | 342 | 0.669 | 0.184 | 1.170 | -83.193 | -83.862 |
+| unknown | 16 | R | 342 | 342 | 11.153 | 10.153 | 12.166 | -29.066 | -40.219 |
+| unknown | 16 | X | 342 | 342 | 0.586 | 0.098 | 1.069 | -82.885 | -83.471 |
+| unknown | 64 | C | 342 | 342 | -0.224 | -0.809 | 0.341 | -93.182 | -92.957 |
+| unknown | 64 | E | 342 | 342 | 0.428 | -0.082 | 0.903 | -85.315 | -85.743 |
+| unknown | 64 | R | 342 | 342 | 13.127 | 12.192 | 14.059 | -25.697 | -38.825 |
+| unknown | 64 | X | 342 | 342 | 0.307 | -0.242 | 0.838 | -85.103 | -85.410 |
+| unknown | 256 | C | 342 | 342 | -0.728 | -1.268 | -0.170 | -93.113 | -92.385 |
+| unknown | 256 | E | 342 | 342 | 0.634 | 0.123 | 1.157 | -83.332 | -83.966 |
+| unknown | 256 | R | 342 | 342 | 14.785 | 13.800 | 15.786 | -23.514 | -38.299 |
+| unknown | 256 | X | 342 | 342 | 0.466 | -0.035 | 0.957 | -83.161 | -83.626 |
+| all | all | C | 1750 | 1750 | -0.242 | -0.500 | 0.014 | -91.183 | -90.941 |
+| all | all | E | 1750 | 1750 | 0.393 | 0.163 | 0.622 | -83.928 | -84.320 |
+| all | all | R | 1750 | 1750 | 8.833 | 8.377 | 9.285 | -31.828 | -40.661 |
+| all | all | X | 1750 | 1750 | 0.295 | 0.067 | 0.531 | -83.611 | -83.906 |
+
+Table `paraphrase__all_injected__heldout_paraphrase__full_sentence` -- cohort: all_injected. LEGACY COMPARISON ONLY: every injected fact, including the historically malformed contrasts; not used for tests
+| label | dose | arm | n | n_groups | mean_belief | ci95_lo | ci95_hi | mean_logp_value | mean_logp_competing |
+|---|---|---|---|---|---|---|---|---|---|
+| true | 1 | C | 4 | 4 | 7.313 | 4.688 | 12.408 | -39.062 | -46.375 |
+| true | 1 | E | 4 | 4 | 8.128 | 3.776 | 13.781 | -37.915 | -46.044 |
+| true | 1 | R | 4 | 4 | 4.278 | -1.210 | 10.467 | -33.100 | -37.378 |
+| true | 1 | X | 4 | 4 | 6.867 | 4.057 | 11.466 | -37.785 | -44.651 |
+| true | 4 | C | 6 | 6 | 7.990 | 4.239 | 12.400 | -40.602 | -48.592 |
+| true | 4 | E | 6 | 6 | 7.565 | 4.380 | 11.353 | -38.241 | -45.806 |
+| true | 4 | R | 6 | 6 | 6.450 | 0.667 | 11.591 | -35.248 | -41.697 |
+| true | 4 | X | 6 | 6 | 7.609 | 4.706 | 10.614 | -38.058 | -45.667 |
+| true | 16 | C | 5 | 5 | 7.121 | 2.007 | 11.653 | -52.721 | -59.842 |
+| true | 16 | E | 5 | 5 | 8.313 | 2.627 | 13.211 | -50.407 | -58.720 |
+| true | 16 | R | 5 | 5 | 9.040 | 4.535 | 13.626 | -41.409 | -50.448 |
+| true | 16 | X | 5 | 5 | 6.107 | 1.661 | 10.552 | -51.667 | -57.774 |
+| ... 52 more rows in the CSV ... |
+
+Paired paraphrase contrasts: see `paired__*__paraphrase_wellformed__heldout_paraphrase__full_sentence` (and `__paraphrase_historical_reference__` for the historical comparison) above.
+
+### 4b. Template-0 probe joined to the realized training forms (finding 12)
+
+A fact is `verbatim_trained` when cloze template 0 with the blank filled equals a surface form actually rendered at its assigned dose (v1: training_surface_forms cycled by occurrence; v2 without a manifest: the renderer's own index rule ctx.templates._pick with the build seed, finding 17; manifest paraphrase indices when given; exposure index keeps only complete, in-horizon occurrences). Metric answer_plus_suffix, pass cloze_neutral; `mean_t0_minus_other` is the within-fact paired difference.
+
+Table `memorization__all_injected` -- cohort: all_injected. nominal classification: 437 of 1750 facts verbatim_trained; classification_source 'nominal' = rendering rule only, an arm name = that arm's exposure index
+| classification_source | subgroup | arm | n | n_groups | mean_template0 | mean_other_templates | mean_t0_minus_other | ci95_lo | ci95_hi |
+|---|---|---|---|---|---|---|---|---|---|
+| C | verbatim_trained | C | 437 | 437 | -0.468 | -0.470 | 0.002 | -0.201 | 0.198 |
+| C | not_verbatim_trained | C | 1313 | 1313 | -0.151 | -0.101 | -0.049 | -0.241 | 0.147 |
+| E | verbatim_trained | E | 437 | 437 | 0.500 | 0.310 | 0.190 | -0.003 | 0.377 |
+| E | not_verbatim_trained | E | 1313 | 1313 | 0.463 | 0.482 | -0.019 | -0.218 | 0.172 |
+| R | verbatim_trained | R | 437 | 437 | 15.837 | 6.898 | 8.939 | 8.073 | 9.828 |
+| R | not_verbatim_trained | R | 1313 | 1313 | 7.881 | 8.076 | -0.195 | -0.533 | 0.162 |
+| X | verbatim_trained | X | 437 | 437 | 0.507 | 0.341 | 0.166 | -0.006 | 0.347 |
+| X | not_verbatim_trained | X | 1313 | 1313 | 0.537 | 0.438 | 0.100 | -0.081 | 0.272 |
+
+## 5. CounterFact (external, never injected; finding 16)
+
+Table `counterfact__per_arm` -- cohort: counterfact. accuracy = fraction of items with logP(true object) > logP(counterfactual object)
+| replicate | cohort | arm | n | n_correct | accuracy | mean_belief | ci95_lo | ci95_hi | mean_logp_value | mean_logp_competing |
+|---|---|---|---|---|---|---|---|---|---|---|
+| rep0 | counterfact | C | 2000 | 1521 | 0.760 | 2.895 | 2.716 | 3.086 | -9.896 | -12.791 |
+| rep0 | counterfact | E | 2000 | 1503 | 0.751 | 2.769 | 2.571 | 2.953 | -9.912 | -12.681 |
+| rep0 | counterfact | R | 2000 | 1519 | 0.759 | 2.838 | 2.672 | 3.018 | -9.883 | -12.721 |
+| rep0 | counterfact | X | 2000 | 1530 | 0.765 | 2.858 | 2.674 | 3.042 | -9.849 | -12.708 |
+
+Table `counterfact__paired_vs_C` -- cohort: counterfact. per-item change vs C; reversals: C-true->arm-false = C prefers the true object and the arm does not; C-false->arm-true the reverse; `p_wilcoxon` on the paired deltas; CIs = bootstrap over items (each CounterFact item is its own cluster)
+| contrast | n | mean_delta | ci95_lo | ci95_hi | mean_abs_delta | p_wilcoxon | n_flips_total | n_C_true_to_arm_false | n_C_false_to_arm_true | accuracy_C | accuracy_arm |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| E-C | 2000 | -0.126 | -0.193 | -0.059 | 1.162 | 2.33e-04 | 218 | 118 | 100 | 0.760 | 0.751 |
+| R-C | 2000 | -0.057 | -0.121 | 0.009 | 1.108 | 1.16e-01 | 196 | 99 | 97 | 0.760 | 0.759 |
+| X-C | 2000 | -0.037 | -0.099 | 0.026 | 1.100 | 6.58e-01 | 193 | 92 | 101 | 0.760 | 0.765 |
+
+Similar per-arm means do NOT imply unchanged knowledge: the per-item changes and preference reversals above show that equal means can conceal item-level movement. Whether that movement exceeds ordinary training-run variation is unmeasured without replicates (this run has 1 replicate(s) so far).
+
+## 6. Uncertainty across training replicates
+
+Per-fact tests and bootstrap intervals describe within-run uncertainty only (facts sharing a training run are not independent training replicates). Uncertainty across training runs is estimated only from replicates and is unmeasured with one run per arm.
+
+Replicates found: 1 (rep0). Training-run variation is therefore UNMEASURED here; every interval and p-value in this report is within-run.
+
+## 7. Equivalence
+
+No equivalence claim is made from any non-significant difference: without --equivalence-margin M no TOST is run, and 'not significant' is not 'equal'.
+
+## Figures
+
+figure -> /tmp/peacechat_seed1_20261107/eval/d24_full_s1/analysis_v2/figures/dose_response__all_injected.png  (cohort all_injected, n=1750; HEADLINE)
+figure -> /tmp/peacechat_seed1_20261107/eval/d24_full_s1/analysis_v2/figures/attribution_asymmetry__all_injected.png
+figure -> /tmp/peacechat_seed1_20261107/eval/d24_full_s1/analysis_v2/figures/counterfact_paired_changes.png
+
+## Files written
+
+- /tmp/peacechat_seed1_20261107/eval/d24_full_s1/analysis_v2/analysis.md (this report), analysis.txt (console log), compatibility.json (finding 6 report)
+- 96 tables under tables/, 10 cohorts under cohorts/, 3 figures under figures/
+
+analysis -> /tmp/peacechat_seed1_20261107/eval/d24_full_s1/analysis_v2

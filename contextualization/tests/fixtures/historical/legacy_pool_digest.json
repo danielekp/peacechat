@@ -1,0 +1,84 @@
+{
+ "params": {
+  "seed": 1234,
+  "num_facts": 8000,
+  "heldout_frac": 0.3,
+  "contested_frac": 0.08,
+  "freq_grid": [
+   1,
+   4,
+   16,
+   64,
+   256
+  ]
+ },
+ "n_pool": 8001,
+ "n_injected": 5600,
+ "n_heldout": 2401,
+ "sum_frequencies": 381365,
+ "sha256_pool_records": "4ab2bbd5825660d540bbf32accdbb341907f6aea25f4e145fd29b2cdee17b8ce",
+ "sha256_injected_records": "d52644e22c3b97a17b586d3a8a0c036ee46766228502a26399bcae7ae0fb6d55",
+ "sha256_heldout_records": "037a3bd88b4ce3dfb0f3e08730228e7f27434bbf26c9592f322ea7fb41f4b836",
+ "truth_counts": {
+  "true": 3676,
+  "false": 3685,
+  "contested": 640
+ },
+ "tier_counts": {
+  "real": 138,
+  "novel": 7863
+ },
+ "first_10_injected": [
+  [
+   "1d2b66a07038b8c8",
+   16,
+   "Fe is the symbol used for iron on the periodic table."
+  ],
+  [
+   "66068d2d65e07596",
+   4,
+   "At 1538 \u00b0C, iron turns from solid to liquid."
+  ],
+  [
+   "c44703948bab3fb5",
+   256,
+   "Edison, an inventor, is remembered for inventing the phonograph."
+  ],
+  [
+   "63554a5c345b865f",
+   4,
+   "Mercury \u2014 order from the Sun: first \u2014 a familiar fact of astronomy."
+  ],
+  [
+   "9f1baff66eaae218",
+   4,
+   "The moon Titan orbits Saturn."
+  ],
+  [
+   "a985a71257e9fb89",
+   256,
+   "The dolphin, an animal, belongs to the mammals."
+  ],
+  [
+   "df092a542b600134",
+   4,
+   "Historians date the French Revolution to 1789."
+  ],
+  [
+   "c8e63ea4c362b8c0",
+   16,
+   "The capital of Italy is Rome."
+  ],
+  [
+   "ee5a6f94bdde496d",
+   256,
+   "The Colosseum is located in Rome."
+  ],
+  [
+   "9315ae099cc50591",
+   1,
+   "At 1085 \u00b0C, copper turns from solid to liquid."
+  ]
+ ],
+ "injected_id_to_freq_sha256": "7cf8468f578acaa0d2c2bf851dea4e46939f0bb999d2b9383041ff087e0b8c15"
+}

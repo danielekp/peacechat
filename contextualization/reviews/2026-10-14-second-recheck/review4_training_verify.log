@@ -1,0 +1,42 @@
+{
+  "loader_cursor_ddp_rank_and_epoch_tail_checks": [
+    {
+      "arm": "R",
+      "rank": 0,
+      "n_microbatches": 20,
+      "resume_positions_tested": 7,
+      "true_rank_count_min": 214,
+      "true_rank_count_max": 288,
+      "report_matches_actual_loader": true
+    },
+    {
+      "arm": "R",
+      "rank": 1,
+      "n_microbatches": 20,
+      "resume_positions_tested": 7,
+      "true_rank_count_min": 214,
+      "true_rank_count_max": 288,
+      "report_matches_actual_loader": true
+    },
+    {
+      "arm": "X",
+      "rank": 0,
+      "n_microbatches": 20,
+      "resume_positions_tested": 7,
+      "true_rank_count_min": 273,
+      "true_rank_count_max": 288,
+      "report_matches_actual_loader": true
+    },
+    {
+      "arm": "X",
+      "rank": 1,
+      "n_microbatches": 20,
+      "resume_positions_tested": 7,
+      "true_rank_count_min": 273,
+      "true_rank_count_max": 288,
+      "report_matches_actual_loader": true
+    }
+  ],
+  "old_changed_accumulation_reproduction_now_rejected": true,
+  "rejection": "ValueError: cannot resume from step 5 of /tmp/ctx_review3_resume_zhh6najx/arm_R/base_checkpoints/d2_ga: the requested training schedule differs from the checkpoint's: total_batch_size: checkpoint 192 vs requested 384; grad_accum_steps: checkpoint 1 vs requested 2. An exact resume keeps the checkpoint's schedule (device_batch_size, max_seq_len, total_batch_size, grad_accum_steps, world_size, num_iterations); a deliberate schedule change needs a new run (no segmented exposure history is supported)"
+}

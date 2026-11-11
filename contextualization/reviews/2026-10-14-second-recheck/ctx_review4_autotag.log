@@ -1,0 +1,5 @@
+2026-10-14 20:02:24,111 - nanochat.checkpoint_manager - [32m[1mINFO[0m - No model tag provided, guessing model tag: d2_s7
+2026-10-14 20:02:24,112 - nanochat.checkpoint_manager - [32m[1mINFO[0m - Loading model from /tmp/ctx_review4_autotag_2v7sp7c_/arm_C/base_checkpoints/d2_s7 with step 267
+2026-10-14 20:02:24,125 - nanochat.checkpoint_manager - [32m[1mINFO[0m - Building model with config: {'sequence_len': 256, 'vocab_size': 768, 'n_layer': 2, 'n_head': 1, 'n_kv_head': 1, 'n_embd': 128, 'window_pattern': 'SSSL'}
+replicate_only {"selected_tag": "d2_s7", "recorded_tag": null, "actual_model_sha256": "c77b88087d5b29a02ff68fd6e982b7ba015bd2e36172acd522cbd23820303a25", "recorded_model_sha256": null, "recorded_model_path": "/tmp/ctx_review4_autotag_2v7sp7c_/arm_C/base_checkpoints/d2/model_000267.pt", "hash_matches_scored_model": false, "output": "/tmp/ctx_review4_autotag_2v7sp7c_/eval/beliefs_armC.csv"}
+ROOT /tmp/ctx_review4_autotag_2v7sp7c_

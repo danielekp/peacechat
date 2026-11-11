@@ -1,0 +1,302 @@
+{
+ "compat_mode": "strict",
+ "compat_reason": null,
+ "ok": true,
+ "mock": false,
+ "modes": [
+  "model_inference"
+ ],
+ "n_csv": 4,
+ "n_meta": 4,
+ "inputs": {
+  "probe_hashes": {
+   "probe_sets/injected_facts.jsonl": "14522608b24c77f4f5f0873b0f996a69de9d969af80420f16975d9f74282cf92",
+   "probe_sets/heldout_facts.jsonl": "1d0693b5a797c2bb55ad529de13763c2cee91b11cd29c3c0c0bce727c11aedb6"
+  },
+  "probe_paths": {
+   "probe_sets/injected_facts.jsonl": "/tmp/peacechat_seed1_20261107/probe_sets/injected_facts.jsonl",
+   "probe_sets/heldout_facts.jsonl": "/tmp/peacechat_seed1_20261107/probe_sets/heldout_facts.jsonl"
+  },
+  "build_summary_path": "/tmp/peacechat_seed1_20261107/build_summary.json",
+  "build_summary_sha256": "d1bf9254a67840ed547692d19b61b5235eb7d58509f94e8bb0a37b71ccebf6d1",
+  "manifest_path": null,
+  "manifest_sha256": null,
+  "marker_manifest_sha256": null,
+  "marker_probe_hashes": null,
+  "exposure_dir": "/tmp/peacechat_seed1_20261107/exposure",
+  "exposure_preflight_path": "/tmp/peacechat_seed1_20261107/exposure/PREFLIGHT_OK.json",
+  "exposure_prepack_dataset_id": {
+   "C": "0cc181995521246f4e6181c31555177d3bc25e728b1e7c30400d9cbe424b683c",
+   "R": "c348c589c1b9dd0c3ebe8780c82a62f5020ce6c8b4b5047598cd2af30584cb2d",
+   "X": "2f3cd7336b191dedae5451c5aec502db75d9cbaae127fe30cabf5a5cdde03755",
+   "E": "d68cdcc56ebd94691fc46640b0e9f4676b73b1a0c0620e9709eda3b81e68967e"
+  },
+  "exposure_build_summary_sha256": "d1bf9254a67840ed547692d19b61b5235eb7d58509f94e8bb0a37b71ccebf6d1",
+  "exposure_manifest_sha256": "8dc71a9905ff680a482919fd756d559748ab390c9387d47d26b95c57f56f321e"
+ },
+ "unequal_horizon_reason": null,
+ "n_item_identity_mismatches": 0,
+ "n_items_with_identity": 25500,
+ "violations": [],
+ "warnings": [],
+ "replicates": {
+  "rep0": {
+   "C": {
+    "csv": "/tmp/peacechat_seed1_20261107/eval/d24_full_s1/beliefs_armC.csv",
+    "n_rows": 25500,
+    "schema": 2,
+    "meta_path": "/tmp/peacechat_seed1_20261107/eval/d24_full_s1/beliefs_armC.meta.json",
+    "meta_present": true,
+    "csv_sha256_actual": "b3e4d594c7ab369c3f1c5f4bf65f085892126854fdb28729c1da7b39997f13fb",
+    "mode": "model_inference",
+    "tokenizer_sha256": "36ca79841b4203beb9d504c18e11ac7d301973982302ff4d233302bb1464c863",
+    "input_hashes": {
+     "probe_sets/injected_facts.jsonl": "14522608b24c77f4f5f0873b0f996a69de9d969af80420f16975d9f74282cf92",
+     "probe_sets/heldout_facts.jsonl": "1d0693b5a797c2bb55ad529de13763c2cee91b11cd29c3c0c0bce727c11aedb6",
+     "build_summary.json": "d1bf9254a67840ed547692d19b61b5235eb7d58509f94e8bb0a37b71ccebf6d1"
+    },
+    "scoring_policy": "joint_prefix_v2",
+    "protocol": "v2-corrected-2026-10",
+    "probe_construction": "structured_v2.1",
+    "csv_sha256_recorded": "b3e4d594c7ab369c3f1c5f4bf65f085892126854fdb28729c1da7b39997f13fb",
+    "csv_sha256_ok": true,
+    "arm_recorded": "C",
+    "checkpoint": {
+     "step": 5524,
+     "model_sha256": "dbbb3c75bdbe15a3ed02d55045124178a0b4fa23484b1115a7330eead3ed3f32",
+     "init_seed": 1,
+     "data_seed": 1,
+     "model_path": "/workspace/ctx_v2_build1_recovered/arm_C/base_checkpoints/d24_full_s1/model_005524.pt",
+     "init_param_sha256": "dfa87fcde2e96dd2aaf14a5c967ad6ca2f89b9f4bb060303126d1d0cbd5dd0a1",
+     "cli_init_seed": null,
+     "resume_from_step": null,
+     "preflight": "ok",
+     "total_batch_size": 1048576,
+     "num_iterations": 5524,
+     "max_seq_len": 2048,
+     "device_batch_size": 8,
+     "grad_accum_steps": 64,
+     "world_size": 1,
+     "model_tag": "d24_full_s1",
+     "loss_normalization": "fixed_nominal"
+    },
+    "has_item_identity": true,
+    "inputs_bound": true,
+    "bindings": {
+     "tokenizer_sha256": "36ca79841b4203beb9d504c18e11ac7d301973982302ff4d233302bb1464c863",
+     "encoding_fingerprint": "97b99cb9d45dfd5633c6b5a9c4f51f7413a8eadeafb04dd6a2fe57f00d9341b2",
+     "data_dir": "/workspace/ctx_v2_build1_recovered/arm_C/base_data",
+     "data_listing_sha256": "37372a128e3322f42a28223407e7d9e6a8728fe5fc4b2a2a1cb518bcb9be7362",
+     "prepacked_dir": "/workspace/ctx_v2_build1_recovered/arm_C/prepacked",
+     "prepack_manifest_sha256": "2533b202681b84b195c5d3b2d22753a4746a997ddb7aa5f643ccf7062cc37c55",
+     "prepack_dataset_id": "0cc181995521246f4e6181c31555177d3bc25e728b1e7c30400d9cbe424b683c",
+     "prepacked_listing_sha256": "5b11c67928d1bba2bd708759fd6835e749a38391e34786631d54dd50edb2d730",
+     "preflight_path": "/workspace/ctx_v2_build1_recovered/exposure/PREFLIGHT_OK.json",
+     "preflight_sha256": "3ea0e434741c9169197435bed113e71d6d5bb9708e3c0b8ab61b99b3ddf8acbf",
+     "build_summary_sha256": "d1bf9254a67840ed547692d19b61b5235eb7d58509f94e8bb0a37b71ccebf6d1",
+     "probe_hashes": {
+      "heldout_facts.jsonl": "1d0693b5a797c2bb55ad529de13763c2cee91b11cd29c3c0c0bce727c11aedb6",
+      "injected_facts.jsonl": "14522608b24c77f4f5f0873b0f996a69de9d969af80420f16975d9f74282cf92"
+     }
+    },
+    "run": {
+     "wandb_run_id": "0gvh5wwk",
+     "source": "checkpoint meta (wandb_run.id)"
+    },
+    "build_mismatch_allowed": false
+   },
+   "E": {
+    "csv": "/tmp/peacechat_seed1_20261107/eval/d24_full_s1/beliefs_armE.csv",
+    "n_rows": 25500,
+    "schema": 2,
+    "meta_path": "/tmp/peacechat_seed1_20261107/eval/d24_full_s1/beliefs_armE.meta.json",
+    "meta_present": true,
+    "csv_sha256_actual": "3548b8dca9e27b2697540b04be3e18911fe66e5852530538f30a1059b879ca16",
+    "mode": "model_inference",
+    "tokenizer_sha256": "36ca79841b4203beb9d504c18e11ac7d301973982302ff4d233302bb1464c863",
+    "input_hashes": {
+     "probe_sets/injected_facts.jsonl": "14522608b24c77f4f5f0873b0f996a69de9d969af80420f16975d9f74282cf92",
+     "probe_sets/heldout_facts.jsonl": "1d0693b5a797c2bb55ad529de13763c2cee91b11cd29c3c0c0bce727c11aedb6",
+     "build_summary.json": "d1bf9254a67840ed547692d19b61b5235eb7d58509f94e8bb0a37b71ccebf6d1"
+    },
+    "scoring_policy": "joint_prefix_v2",
+    "protocol": "v2-corrected-2026-10",
+    "probe_construction": "structured_v2.1",
+    "csv_sha256_recorded": "3548b8dca9e27b2697540b04be3e18911fe66e5852530538f30a1059b879ca16",
+    "csv_sha256_ok": true,
+    "arm_recorded": "E",
+    "checkpoint": {
+     "step": 5524,
+     "model_sha256": "df1d6926c64a021bef7a8987d1bd81411990a6900895249cac44e51a1c0c7ccd",
+     "init_seed": 1,
+     "data_seed": 1,
+     "model_path": "/workspace/ctx_v2_build1_recovered/arm_E/base_checkpoints/d24_full_s1/model_005524.pt",
+     "init_param_sha256": "dfa87fcde2e96dd2aaf14a5c967ad6ca2f89b9f4bb060303126d1d0cbd5dd0a1",
+     "cli_init_seed": null,
+     "resume_from_step": null,
+     "preflight": "ok",
+     "total_batch_size": 1048576,
+     "num_iterations": 5524,
+     "max_seq_len": 2048,
+     "device_batch_size": 8,
+     "grad_accum_steps": 64,
+     "world_size": 1,
+     "model_tag": "d24_full_s1",
+     "loss_normalization": "fixed_nominal"
+    },
+    "has_item_identity": true,
+    "inputs_bound": true,
+    "bindings": {
+     "tokenizer_sha256": "36ca79841b4203beb9d504c18e11ac7d301973982302ff4d233302bb1464c863",
+     "encoding_fingerprint": "97b99cb9d45dfd5633c6b5a9c4f51f7413a8eadeafb04dd6a2fe57f00d9341b2",
+     "data_dir": "/workspace/ctx_v2_build1_recovered/arm_E/base_data",
+     "data_listing_sha256": "ed581dc3688b97d84b7d01b993adc1714d8743221b243fa4dd2fa5df80a56dfb",
+     "prepacked_dir": "/workspace/ctx_v2_build1_recovered/arm_E/prepacked",
+     "prepack_manifest_sha256": "776dd50e9401c734ba144a916799eb1eb0a1203cd246f26b05d3df92ea9b0dcb",
+     "prepack_dataset_id": "d68cdcc56ebd94691fc46640b0e9f4676b73b1a0c0620e9709eda3b81e68967e",
+     "prepacked_listing_sha256": "5b11c67928d1bba2bd708759fd6835e749a38391e34786631d54dd50edb2d730",
+     "preflight_path": "/workspace/ctx_v2_build1_recovered/exposure/PREFLIGHT_OK.json",
+     "preflight_sha256": "3ea0e434741c9169197435bed113e71d6d5bb9708e3c0b8ab61b99b3ddf8acbf",
+     "build_summary_sha256": "d1bf9254a67840ed547692d19b61b5235eb7d58509f94e8bb0a37b71ccebf6d1",
+     "probe_hashes": {
+      "heldout_facts.jsonl": "1d0693b5a797c2bb55ad529de13763c2cee91b11cd29c3c0c0bce727c11aedb6",
+      "injected_facts.jsonl": "14522608b24c77f4f5f0873b0f996a69de9d969af80420f16975d9f74282cf92"
+     }
+    },
+    "run": {
+     "wandb_run_id": "v6fuwhxq",
+     "source": "checkpoint meta (wandb_run.id)"
+    },
+    "build_mismatch_allowed": false
+   },
+   "R": {
+    "csv": "/tmp/peacechat_seed1_20261107/eval/d24_full_s1/beliefs_armR.csv",
+    "n_rows": 25500,
+    "schema": 2,
+    "meta_path": "/tmp/peacechat_seed1_20261107/eval/d24_full_s1/beliefs_armR.meta.json",
+    "meta_present": true,
+    "csv_sha256_actual": "d081c89001f97b486061c40ae804bd7781b3e7d1c1924f3818418183310285dd",
+    "mode": "model_inference",
+    "tokenizer_sha256": "36ca79841b4203beb9d504c18e11ac7d301973982302ff4d233302bb1464c863",
+    "input_hashes": {
+     "probe_sets/injected_facts.jsonl": "14522608b24c77f4f5f0873b0f996a69de9d969af80420f16975d9f74282cf92",
+     "probe_sets/heldout_facts.jsonl": "1d0693b5a797c2bb55ad529de13763c2cee91b11cd29c3c0c0bce727c11aedb6",
+     "build_summary.json": "d1bf9254a67840ed547692d19b61b5235eb7d58509f94e8bb0a37b71ccebf6d1"
+    },
+    "scoring_policy": "joint_prefix_v2",
+    "protocol": "v2-corrected-2026-10",
+    "probe_construction": "structured_v2.1",
+    "csv_sha256_recorded": "d081c89001f97b486061c40ae804bd7781b3e7d1c1924f3818418183310285dd",
+    "csv_sha256_ok": true,
+    "arm_recorded": "R",
+    "checkpoint": {
+     "step": 5524,
+     "model_sha256": "52f0200042a6d1eb0a7bcb3b744383f2754849ee7f5ef310fbf7039175669259",
+     "init_seed": 1,
+     "data_seed": 1,
+     "model_path": "/workspace/ctx_v2_build1_recovered/arm_R/base_checkpoints/d24_full_s1/model_005524.pt",
+     "init_param_sha256": "dfa87fcde2e96dd2aaf14a5c967ad6ca2f89b9f4bb060303126d1d0cbd5dd0a1",
+     "cli_init_seed": null,
+     "resume_from_step": null,
+     "preflight": "ok",
+     "total_batch_size": 1048576,
+     "num_iterations": 5524,
+     "max_seq_len": 2048,
+     "device_batch_size": 8,
+     "grad_accum_steps": 64,
+     "world_size": 1,
+     "model_tag": "d24_full_s1",
+     "loss_normalization": "fixed_nominal"
+    },
+    "has_item_identity": true,
+    "inputs_bound": true,
+    "bindings": {
+     "tokenizer_sha256": "36ca79841b4203beb9d504c18e11ac7d301973982302ff4d233302bb1464c863",
+     "encoding_fingerprint": "97b99cb9d45dfd5633c6b5a9c4f51f7413a8eadeafb04dd6a2fe57f00d9341b2",
+     "data_dir": "/workspace/ctx_v2_build1_recovered/arm_R/base_data",
+     "data_listing_sha256": "4ee8122c85a61442a3dbbd6903f54b500fc579664c7bdc4bdc5f97b01ff26cf9",
+     "prepacked_dir": "/workspace/ctx_v2_build1_recovered/arm_R/prepacked",
+     "prepack_manifest_sha256": "bac654dbe741955a805a217d0c9d8f037bee3a7ba92c71e383719a8e9a561cd8",
+     "prepack_dataset_id": "c348c589c1b9dd0c3ebe8780c82a62f5020ce6c8b4b5047598cd2af30584cb2d",
+     "prepacked_listing_sha256": "5b11c67928d1bba2bd708759fd6835e749a38391e34786631d54dd50edb2d730",
+     "preflight_path": "/workspace/ctx_v2_build1_recovered/exposure/PREFLIGHT_OK.json",
+     "preflight_sha256": "3ea0e434741c9169197435bed113e71d6d5bb9708e3c0b8ab61b99b3ddf8acbf",
+     "build_summary_sha256": "d1bf9254a67840ed547692d19b61b5235eb7d58509f94e8bb0a37b71ccebf6d1",
+     "probe_hashes": {
+      "heldout_facts.jsonl": "1d0693b5a797c2bb55ad529de13763c2cee91b11cd29c3c0c0bce727c11aedb6",
+      "injected_facts.jsonl": "14522608b24c77f4f5f0873b0f996a69de9d969af80420f16975d9f74282cf92"
+     }
+    },
+    "run": {
+     "wandb_run_id": "uffnhjhq",
+     "source": "checkpoint meta (wandb_run.id)"
+    },
+    "build_mismatch_allowed": false
+   },
+   "X": {
+    "csv": "/tmp/peacechat_seed1_20261107/eval/d24_full_s1/beliefs_armX.csv",
+    "n_rows": 25500,
+    "schema": 2,
+    "meta_path": "/tmp/peacechat_seed1_20261107/eval/d24_full_s1/beliefs_armX.meta.json",
+    "meta_present": true,
+    "csv_sha256_actual": "995ad00311a335e2573e399e33d9085cf82826f2d00f45b076ce2137a3777fcb",
+    "mode": "model_inference",
+    "tokenizer_sha256": "36ca79841b4203beb9d504c18e11ac7d301973982302ff4d233302bb1464c863",
+    "input_hashes": {
+     "probe_sets/injected_facts.jsonl": "14522608b24c77f4f5f0873b0f996a69de9d969af80420f16975d9f74282cf92",
+     "probe_sets/heldout_facts.jsonl": "1d0693b5a797c2bb55ad529de13763c2cee91b11cd29c3c0c0bce727c11aedb6",
+     "build_summary.json": "d1bf9254a67840ed547692d19b61b5235eb7d58509f94e8bb0a37b71ccebf6d1"
+    },
+    "scoring_policy": "joint_prefix_v2",
+    "protocol": "v2-corrected-2026-10",
+    "probe_construction": "structured_v2.1",
+    "csv_sha256_recorded": "995ad00311a335e2573e399e33d9085cf82826f2d00f45b076ce2137a3777fcb",
+    "csv_sha256_ok": true,
+    "arm_recorded": "X",
+    "checkpoint": {
+     "step": 5524,
+     "model_sha256": "1946ec69a7021712d4a376bd26ca8ebaf7c9c9b1462af73ef799ba8a27dcdd04",
+     "init_seed": 1,
+     "data_seed": 1,
+     "model_path": "/workspace/ctx_v2_build1_recovered/arm_X/base_checkpoints/d24_full_s1/model_005524.pt",
+     "init_param_sha256": "dfa87fcde2e96dd2aaf14a5c967ad6ca2f89b9f4bb060303126d1d0cbd5dd0a1",
+     "cli_init_seed": null,
+     "resume_from_step": null,
+     "preflight": "ok",
+     "total_batch_size": 1048576,
+     "num_iterations": 5524,
+     "max_seq_len": 2048,
+     "device_batch_size": 8,
+     "grad_accum_steps": 64,
+     "world_size": 1,
+     "model_tag": "d24_full_s1",
+     "loss_normalization": "fixed_nominal"
+    },
+    "has_item_identity": true,
+    "inputs_bound": true,
+    "bindings": {
+     "tokenizer_sha256": "36ca79841b4203beb9d504c18e11ac7d301973982302ff4d233302bb1464c863",
+     "encoding_fingerprint": "97b99cb9d45dfd5633c6b5a9c4f51f7413a8eadeafb04dd6a2fe57f00d9341b2",
+     "data_dir": "/workspace/ctx_v2_build1_recovered/arm_X/base_data",
+     "data_listing_sha256": "8eb1a7dad43ab84cf308ddf7e680aaad639cc5c0190d9374518f0ba79dafe61f",
+     "prepacked_dir": "/workspace/ctx_v2_build1_recovered/arm_X/prepacked",
+     "prepack_manifest_sha256": "b09811f248c069e5ae55a69fbb72bda96859e441da43d06203fc35c78bcaa2a6",
+     "prepack_dataset_id": "2f3cd7336b191dedae5451c5aec502db75d9cbaae127fe30cabf5a5cdde03755",
+     "prepacked_listing_sha256": "5b11c67928d1bba2bd708759fd6835e749a38391e34786631d54dd50edb2d730",
+     "preflight_path": "/workspace/ctx_v2_build1_recovered/exposure/PREFLIGHT_OK.json",
+     "preflight_sha256": "3ea0e434741c9169197435bed113e71d6d5bb9708e3c0b8ab61b99b3ddf8acbf",
+     "build_summary_sha256": "d1bf9254a67840ed547692d19b61b5235eb7d58509f94e8bb0a37b71ccebf6d1",
+     "probe_hashes": {
+      "heldout_facts.jsonl": "1d0693b5a797c2bb55ad529de13763c2cee91b11cd29c3c0c0bce727c11aedb6",
+      "injected_facts.jsonl": "14522608b24c77f4f5f0873b0f996a69de9d969af80420f16975d9f74282cf92"
+     }
+    },
+    "run": {
+     "wandb_run_id": "2rntdb8q",
+     "source": "checkpoint meta (wandb_run.id)"
+    },
+    "build_mismatch_allowed": false
+   }
+  }
+ }
+}

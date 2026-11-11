@@ -1,0 +1,5 @@
+COMPATIBILITY {"ok": true, "warnings": [], "inputs_bound": [true, true, true, true, true, true, true, true]}
+MEMORIZATION_TABLES []
+NOT_COMPUTABLE_LINES ['NOT COMPUTABLE: 5649f5747556ba12: manifest paraphrase_index -1 outside surface_forms', 'NOT COMPUTABLE: 5649f5747556ba12: manifest paraphrase_index -1 outside surface_forms']
+NEGATIVE_PARAPHRASE_INDEX_BY_ARM {'C': 68}
+ROOT /tmp/ctx-fourth-control-manifest-1opdmmyp
